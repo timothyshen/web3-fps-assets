@@ -1,47 +1,71 @@
 # web3-fps-assets
 
-Web3 资产层 —— Unity FPS 游戏的链上资产管理、奖励发放与交易。
+Unity FPS 游戏的 Web3 资产层 —— 皮肤 NFT 的所有权、奖励发放与自由交易。
 
-本仓库只负责 **Web3 侧**。Unity 客户端的实时战斗（移动、射击、命中判定、网络同步）和权威游戏服务器在另外的仓库，本仓库通过明确定义的 HTTP 契约与之交互，不侵入战斗循环。
-
-## 当前状态
-
-**设计阶段。** 尚无合约或服务代码。先把边界、选型和数据流定下来，再落地实现。
-
-## 文档
-
-按顺序阅读：
-
-| 文档 | 内容 |
-|------|------|
-| [01-scope-and-boundaries.md](docs/01-scope-and-boundaries.md) | 链上 / 链下职责划分，为什么战斗循环绝不碰链 |
-| [02-chain-and-stack.md](docs/02-chain-and-stack.md) | 链选型对比与决策，技术栈 |
-| [03-asset-model.md](docs/03-asset-model.md) | 皮肤 / 宝箱 / 货币的资产建模，元数据与外观契约 |
-| [04-contracts.md](docs/04-contracts.md) | 合约架构、接口、权限与可升级性策略 |
-| [05-offchain-services.md](docs/05-offchain-services.md) | 结算、签名、索引、Inventory API |
-| [06-unity-integration.md](docs/06-unity-integration.md) | Unity 侧集成契约与钱包 UX |
-| [07-security.md](docs/07-security.md) | 威胁模型与缓解措施 |
-| [08-roadmap.md](docs/08-roadmap.md) | 分阶段路线图与开放问题 |
-
-## 规划中的目录结构
-
-```
-contracts/          Foundry 工程（Solidity）
-  src/
-  test/
-  script/
-services/
-  settlement/       对局结果 → 待领奖励
-  voucher/          EIP-712 签名服务（密钥在 KMS）
-  indexer/          链上事件 → inventory 物化视图
-  api/              游戏服务器 / 客户端读取入口
-packages/
-  unity-sdk/        Unity 侧 C# 客户端（只调后端，不持私钥）
-  shared-types/     跨服务的类型定义与 ABI
-docs/
-```
+Hackathon 项目。本仓库只负责 Web3 侧；Unity 客户端与权威游戏服务器在别处，
+通过 `api/openapi.yaml` 和 `IGameAssetGateway` 两个契约对接。
 
 ## 一句话原则
 
 > 链是**所有权的最终仲裁者**，不是游戏状态的存储层。
 > 任何需要在 16ms 内完成的事情，都不允许出现链调用。
+
+## 状态
+
+合约与抽象层已完成，`forge test` 72 个测试全绿（含 4 个 invariant）。
+资产后端与 Web 应用待建，见 [docs/roadmap.md](docs/roadmap.md)。
+
+## 目录
+
+```
+contracts/              Foundry 工程
+  src/
+    interfaces/         对外 ABI 契约
+    GameAssetRegistry.sol   款式目录 + 发行上限（唯一强制点）
+    WeaponSkin.sol          ERC-721，不可升级
+    RewardDistributor.sol   EIP-712 voucher + 幂等直铸
+    SkinMarket.sol          demo 市场
+  test/                 72 个测试，含 invariant
+  script/               部署与灌数据
+api/openapi.yaml        资产后端的 REST 契约（Web3 侧实现）
+packages/unity-sdk/     给 Unity 的抽象层（拷 Runtime/ 进工程即可）
+docs/
+```
+
+## 合约一览
+
+| 合约 | 职责 | 可升级 |
+|------|------|--------|
+| `GameAssetRegistry` | 款式定义、发行上限强制、外观哈希承诺 | 否 |
+| `WeaponSkin` | ERC-721 + Enumerable + EIP-2981 | **永不** |
+| `RewardDistributor` | 唯一持有 MINTER_ROLE，两条发奖路径 | 否 |
+| `SkinMarket` | 固定价格挂单，按 2981 分版税 | 否 |
+
+`WeaponSkin` 不可升级是刻意的：持有所有权的合约一旦可升级，一次升级就能加进
+`adminBurn`，"我们无法收回你的资产"就成了假话。
+
+## 快速开始
+
+```bash
+cd contracts
+forge test                    # 72 个测试
+forge test --gas-report       # gas 明细
+
+export PRIVATE_KEY=0x...
+export REWARD_SIGNER_ADDRESS=0x...
+forge script script/Deploy.s.sol:Deploy --rpc-url base_sepolia --broadcast
+```
+
+Unity 侧：把 `packages/unity-sdk/Runtime/` 拷进工程，先用 `MockGameAssetGateway`
+开发，后端就绪后换成 `HttpGameAssetGateway`，其余代码不用改。
+
+## 文档
+
+| 文档 | 内容 |
+|------|------|
+| [architecture.md](docs/architecture.md) | 链上/链下边界、链选型、hackathon 砍了什么 |
+| [contracts.md](docs/contracts.md) | 合约参考（对齐实现）、实测 gas、测试清单 |
+| [asset-model.md](docs/asset-model.md) | 为什么用 721、外观哈希承诺、未实现的部分 |
+| [integration.md](docs/integration.md) | 资产后端要做什么、Unity 集成约束 |
+| [security.md](docs/security.md) | 威胁模型，标注了哪些已挡住、哪些是刻意留的口子 |
+| [roadmap.md](docs/roadmap.md) | 进度、下一步、待讨论的问题 |
