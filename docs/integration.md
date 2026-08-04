@@ -7,7 +7,7 @@ flowchart LR
     U["Unity 客户端<br/>（别人负责）"] -->|"IGameAssetGateway"| API
     W["Web 应用<br/>钱包 / 衣柜 / 市场"] -->|"wagmi / viem"| CH
     GS["游戏服务器<br/>（别人负责）"] -->|"内网 API"| API
-    API["资产后端<br/>（我负责）"] -->|"viem"| CH["Base"]
+    API["资产后端<br/>（我负责）"] -->|"viem"| CH["Monad"]
 ```
 
 Web3 侧负责：合约、资产后端、Web 应用。
@@ -60,7 +60,7 @@ await distributor.write.mintDirect([wallet, skinDefId, wear, seasonId, requestId
 ```
 POST /v1/wallet/bind        → { sessionId, bindUrl }
   Unity 用系统浏览器打开 bindUrl
-  Web 页面：Coinbase Smart Wallet 登录（Passkey）→ SIWE 签名（含 nonce + sessionId）
+  Web 页面：钱包登录（见下方"钱包选型"）→ SIWE 签名（含 nonce + sessionId）
   后端验签 → 绑定 playerId ↔ address
 GET  /v1/wallet/bind/{id}   → { state: "bound", wallet }
 ```
@@ -68,6 +68,27 @@ GET  /v1/wallet/bind/{id}   → { state: "bound", wallet }
 - SIWE（EIP-4361）消息必须含 nonce、domain、过期时间；
 - 一个 playerId 只能绑一个地址；
 - 后端**不持有玩家私钥**，只记录地址。
+
+#### 钱包选型
+
+目标用户是 FPS 玩家，不是 DeFi 用户 —— **要求助记词等于转化率归零**。所以优先
+选嵌入式钱包（社交 / 邮箱登录即得非托管钱包），把"装插件 + 抄助记词"这步彻底去掉。
+
+Monad 上可用的方案：
+
+| 方案 | 特点 |
+|------|------|
+| **Privy** | 对 Monad 测试网用量有补贴，wagmi 集成成熟。**建议 demo 用这个** |
+| MetaMask Embedded Wallets | Google / Apple OAuth 一键登录，官方文档有 Monad 专章 |
+| Crossmint | 邮箱 / 社交 / passkey / 短信多种签名方式的智能合约钱包 |
+| 注入式钱包（MetaMask 插件等） | 兜底，给已经有钱包的玩家 |
+
+两点提醒：
+
+1. **嵌入式和注入式同时支持。** 评委里既有装了钱包的也有没装的，
+   wagmi 的 connector 列表两种都放。
+2. 链配置自己定义一次、前后端共用，别在多处硬编码 chainId：
+   测试网 `10143` / 主网 `143`，原生币 `MON`。
 
 ### 4. 开局核验 `POST /internal/v1/entitlement-check`
 

@@ -77,27 +77,70 @@ sequenceDiagram
 链上只承载**非同质化的、有真实稀缺性的**外观资产。这把项目定位为"有真实资产
 所有权的传统游戏"，不是 GameFi。
 
-## 链选型：Base Sepolia → Base
+## 链：Monad
 
-**hackathon 用 Base Sepolia**，主网路径是 Base。
+已定。开发在 **Monad 测试网**，部署目标是 **Monad 主网**。
 
-按 hackathon 的实际约束排序：
+| | chain ID | RPC | 浏览器 |
+|---|---|---|---|
+| 测试网 | `10143` | `https://testnet-rpc.monad.xyz` | `https://testnet.monadexplorer.com` |
+| 主网 | `143` | `https://rpc.monad.xyz` | `https://monadvision.com` |
 
-1. **标准 EVM** —— Foundry / OZ / 所有工具链开箱即用，没有学习成本。
-2. **测试网水龙头好拿、区块 2 秒** —— demo 现场不会卡在等确认。
-3. **Coinbase Smart Wallet 用 Passkey 登录**，没有助记词，评委不需要装 MetaMask
-   就能试。这在演示时是实打实的加分项。
-4. 主网上二级市场流动性最好（OpenSea / Blur / Magic Eden 全支持），
-   "自由流通"这个承诺才成立。
+原生币 `MON`。合约验证走 **Sourcify**（不是 Etherscan），命令见 `docs/contracts.md`。
 
-对比过的其他选项，以及为什么没选：
+### Monad 对这套设计的影响
 
-| 链 | 为什么不选 |
-|----|-----------|
-| Immutable zkEVM | 协议层免 gas 很香，但资产基本只能在自家市场流通，和"自由流通"的承诺自相矛盾；接入还需审核 |
-| Ronin | 2022 年桥被盗 $6.2 亿，声誉风险不值得 |
-| Polygon PoS | 便宜，但正在向 AggLayer 迁移，技术路线不确定 |
-| Sui / Aptos | 对象模型确实更适合游戏资产，但 Solidity 技能与审计生态全部作废 |
+合约代码**一行都不用改** —— Monad 是完整 EVM 字节码兼容，支持到 Cancun 分叉的
+全部操作码与预编译。但有四处工程决策需要重新校准：
+
+**1. 必须钉死 `evm_version = "cancun"`。**
+Monad 不支持 Prague 操作码。solc 0.8.28 当前默认就是 cancun，但默认值会随
+编译器升级漂移 —— 哪天升 solc 后默认跳到 prague，就会编译出在 Monad 上无法部署的
+字节码，而且**要到部署那一刻才发现**。已在 `foundry.toml` 里显式钉死。
+
+**2. 快速最终性削弱了"确认数"这件事。**
+之前按 OP Stack 的 optimistic rollup 设计，需要 12 确认 + reorg 回滚逻辑。
+MonadBFT 的最终性快得多，`SkinItem.state` 的 `pending` 窗口可以短很多。
+这让"不建索引服务、直接读链"的选择更站得住。
+
+**3. gas 便宜 + 吞吐高 → push 模式更划算。**
+`mintDirect`（后端付 gas、玩家零操作）本来就是 demo 主线，在 Monad 上成本压力
+更小。`ERC721Enumerable` 那 80k 的开销在绝对金额上也更不显眼。
+
+**4. 并行执行让"存储热点"从纯 gas 问题变成了吞吐问题** —— 见下。
+
+### 并行执行下的存储热点
+
+Monad 乐观并行执行交易，检测到读写冲突就重新执行。这不影响正确性，但**写同一个
+storage slot 的交易之间无法真正并行**。这套合约里有两处：
+
+| 热点 | 影响范围 | 严重度 |
+|------|---------|--------|
+| `GameAssetRegistry._skins[id].minted` | 只在**同款皮肤**的并发铸造之间冲突 | 可接受 —— 这是发行上限的强制点，本来就必须串行 |
+| `ERC721Enumerable._allTokens` 的长度槽 | **整个 collection 的每一次铸造和销毁**都写它 | 全局热点 |
+
+第二条值得注意：`_allTokens` 是跨所有款式的全局数组，任意两笔铸造都会冲突。
+在 Base 这种顺序执行的链上，Enumerable 只让我多花 gas；在 Monad 上，它**还吃掉了
+并行度**。
+
+这不改变当前决定 —— hackathon 的铸造并发量根本到不了会有影响的量级，而省掉一整个
+索引服务的收益是实打实的。但它改变了**什么时候该换掉 Enumerable** 的触发条件：
+
+> 原来的触发条件是"gas 成为瓶颈"。在 Monad 上还要加一条：
+> **持续的高并发铸造**（比如赛季结算时上万玩家同时领奖）。
+> 那时应改为自建 indexer + 去掉 Enumerable，让铸造之间不再互相冲突。
+
+真到那一步，换实现不影响 `IGameAssetGateway` 契约 —— `tokensOfOwner` 只有后端调。
+
+### 一个诚实的取舍
+
+选 Monad 是产品决定，这里只记录它的代价：**NFT 二级市场的流动性和成熟度**
+目前远不如 Ethereum / Base 生态。"玩家可以自由出售"这个承诺在 Monad 上更依赖
+生态后续发展，也让自建的 `SkinMarket` 从"demo 用的临时方案"变成了更吃重的一环。
+
+对 hackathon 完全不是问题（本来就要自己演示交易闭环）。但如果项目要继续，
+需要盯着 Monad 上主流市场（OpenSea、Magic Eden、Seaport 部署情况）的进展再决定
+`SkinMarket` 是长期保留还是替换掉。
 
 **不做多链。** 会把库存一致性、跨链桥、市场碎片化的复杂度全引进来，收益只是营销故事。
 

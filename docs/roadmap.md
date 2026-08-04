@@ -12,7 +12,7 @@
 | `IGameAssetGateway` + Mock + Http 实现 | 完成 |
 | `api/openapi.yaml` 后端契约 | 完成 |
 
-`forge test` 72 个测试全绿，含 4 个 invariant。
+`forge test` 73 个测试全绿，含 4 个 invariant。
 
 ## 下一步（按依赖顺序）
 
@@ -20,7 +20,7 @@
 
 脚本写好了但没在真链上跑过，先把这个闭环打通：
 
-- [ ] 拿 Base Sepolia 测试币
+- [ ] 拿 Monad 测试网 MON（水龙头）
 - [ ] `Deploy.s.sol` 实际部署 + Etherscan 验证
 - [ ] `SeedSkins.s.sol` 灌 5 款皮肤
 - [ ] `cast` 手动走一遍 mintDirect → tokensOfOwner → list → buy
@@ -42,7 +42,7 @@
 
 ### 3. Web 应用（1–2 天，你的主场）
 
-- [ ] 钱包连接（Coinbase Smart Wallet / wagmi）
+- [ ] 钱包连接（wagmi + Monad 链配置；嵌入式钱包见 integration.md）
 - [ ] 绑定页面（SIWE 签名）
 - [ ] 衣柜展示（读 `tokensOfOwner`）
 - [ ] 挂单 / 购买（`SkinMarket`）
@@ -80,9 +80,9 @@ Web3 侧无法独立完成的，需要尽早对齐：
 1. **奖励用 push 还是 pull？** 当前两条路径都实现了。push（后端直铸）demo 体验
    最顺，玩家零操作；pull（voucher）省 gas 且未领取的不上链。建议 demo 用 push，
    真实运营时高价值奖励切 pull。
-2. **hackathon 要不要接 Paymaster？** 接了玩家全程零 gas，演示效果好；不接的话
-   push 模式下玩家本来也不用付 gas，只有 Web 端挂单/购买需要。**建议不接** ——
-   投入产出比不高，push 模式已经能演示"零门槛"。
+2. **要不要接 gas 代付？** **建议不接。** push 模式下玩家本来就不付 gas，
+   只有 Web 端挂单/购买需要，而 Monad 的 gas 成本本身很低 —— 给测试地址打点
+   测试网 MON 就够演示了。省下的时间投到别处更划算。
 3. **`maxSupply` 定多少？** 上链后只能降不能升，定太高无法回收。demo 用
    `SeedSkins.s.sol` 里的 100–10000 分层即可，真实发行需要经济模型输入。
 4. **Web 应用和游戏用同一套账号吗？** 影响 SIWE 绑定流程的设计。

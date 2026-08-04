@@ -76,9 +76,14 @@
 
 **未做**。当前乐观显示，不等确认数。
 
-Base 是 OP Stack，L2 reorg 罕见但不是不可能。主网版本需要：12 确认才进入可用
-库存、indexer 逐块校验 blockHash 并支持幂等回滚。`SkinItem.state` 字段
-（`confirmed` / `pending`）已经预留了这个语义，客户端也已经按它过滤 loadout。
+Monad 用 MonadBFT，最终性比 optimistic rollup 快得多，reorg 风险显著低于当初
+按 Base 设计时的假设。但"更快"不等于"不需要"：确定的做法仍是等到区块被最终确认
+再把资产标为可用。
+
+`SkinItem.state` 字段（`confirmed` / `pending`）已经预留了这个语义，客户端也
+已经按它过滤 loadout —— 需要补的只是后端按 Monad 的最终性规则来设置这个字段，
+而不是像现在这样一律返回 `confirmed`。因为最终性快，这个窗口可以做得很短，
+玩家几乎无感。
 
 ## T7 · 市场相关
 

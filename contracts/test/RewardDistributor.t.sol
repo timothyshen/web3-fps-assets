@@ -107,16 +107,35 @@ contract RewardDistributorTest is BaseTest {
         distributor.claim(tampered, sig);
     }
 
-    /// @dev EIP-712 domain 含 chainId：测试网签名不能在主网重放。
+    /// @dev EIP-712 domain 含 chainId：Monad 测试网签发的 voucher 不能在主网重放。
+    ///      这是真实风险 —— 测试网的签名密钥往往管得松，泄露后如果能在主网用就是事故。
     function test_claim_revertsOnCrossChainReplay() public {
+        vm.chainId(10_143); // Monad 测试网
+
         IRewardDistributor.Voucher memory v = _voucher(player, SKIN_AK, 0);
         bytes memory sig = _sign(v, signerKey);
 
-        vm.chainId(8453); // 换到 Base 主网
+        // 同一条链上签名有效
+        assertEq(distributor.voucherHash(v), distributor.voucherHash(v));
+
+        vm.chainId(143); // Monad 主网
 
         vm.prank(player);
         vm.expectRevert(IRewardDistributor.InvalidSignature.selector);
         distributor.claim(v, sig);
+    }
+
+    /// @dev 反向确认：不跨链时同一个 voucher 是能正常用的，
+    ///      否则上面那个测试可能因为别的原因通过。
+    function test_claim_succeedsOnSameChain() public {
+        vm.chainId(10_143);
+
+        IRewardDistributor.Voucher memory v = _voucher(player, SKIN_AK, 0);
+        bytes memory sig = _sign(v, signerKey);
+
+        vm.prank(player);
+        uint256 tokenId = distributor.claim(v, sig);
+        assertEq(skin.ownerOf(tokenId), player);
     }
 
     function testFuzz_noncesAreIndependent(uint8 a, uint8 b) public {

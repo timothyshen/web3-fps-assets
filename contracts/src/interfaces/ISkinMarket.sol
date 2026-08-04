@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 /// @title ISkinMarket
-/// @notice 极简的固定价格挂单市场，ETH 计价，按 EIP-2981 分版税。
+/// @notice 极简的固定价格挂单市场，原生币计价（Monad 上是 MON），按 EIP-2981 分版税。
 /// @dev 存在的理由：hackathon demo 需要一个当场可演示的完整交易闭环，
 ///      而测试网的第三方市场（OpenSea 等）索引不稳定、经常看不到刚铸造的 NFT。
 ///      主网上线时应改为直接依赖 Seaport —— 自建市场做不出流动性。

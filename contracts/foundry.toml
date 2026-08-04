@@ -10,6 +10,16 @@ optimizer_runs = 200
 via_ir = false
 gas_reports = ["WeaponSkin", "RewardDistributor", "SkinMarket", "GameAssetRegistry"]
 
+# Monad 支持到 Cancun 为止，不支持 Prague 操作码。
+# 显式钉死而不是依赖 solc 默认值 —— 将来升 solc 时默认值可能跳到 prague，
+# 那会编译出 Monad 上无法部署的字节码，而且要到部署那一刻才发现。
+evm_version = "cancun"
+
+# Sourcify 验证需要：源码内联、不写 IPFS 哈希
+metadata = true
+bytecode_hash = "none"
+use_literal_content = true
+
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "forge-std/=lib/forge-std/src/",
@@ -28,7 +38,8 @@ runs = 256
 runs = 1024
 
 [rpc_endpoints]
-base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+monad_testnet = "${MONAD_TESTNET_RPC_URL}"
+monad = "${MONAD_RPC_URL}"
 
-[etherscan]
-base_sepolia = {key = "${ETHERSCAN_API_KEY}", chain = 84532}
+# Monad 走 Sourcify 验证，不是 Etherscan。命令见 docs/contracts.md。
+# 注意 verifier-url 结尾的斜杠不能少。

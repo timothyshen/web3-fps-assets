@@ -164,7 +164,7 @@ relayer / Paymaster 代付 gas。`test_claim_relayerCannotStealReward` 守着这
 
 ## SkinMarket
 
-极简固定价格市场：挂单 / 撤单 / 购买，ETH 计价，按 EIP-2981 分版税。
+极简固定价格市场：挂单 / 撤单 / 购买，原生币计价（Monad 上是 MON），按 EIP-2981 分版税。
 
 **存在的理由**：demo 需要当场可演示的完整交易闭环，而测试网的第三方市场索引
 不稳定，经常看不到刚铸造的 NFT。**上主网时应改为直接依赖 Seaport** —— 自建
@@ -212,7 +212,7 @@ EIP-2981，默认 5%，收款地址为 treasury。
 | 转移 | 55,149 | 29,047 | **+26,102** |
 
 这就是换掉整个索引服务的价格 —— 省下一个需要处理 reorg、断线续传、多实例选主
-的服务。在 Base 上按常见 gas price 换算，单次铸造成本仍在一美分量级，
+的服务。在 Monad 上按其 gas 定价换算，单次铸造成本可忽略，
 hackathon 完全可接受。
 
 真上量之后如果这笔钱变得显著（比如日铸造上万），再换成自建 indexer 也不迟：
@@ -220,7 +220,7 @@ hackathon 完全可接受。
 
 ## 测试
 
-`forge test` —— 72 个测试，含 4 个 invariant（各 256 轮 × 500 次调用）。
+`forge test` —— 73 个测试，含 4 个 invariant（各 256 轮 × 500 次调用）。
 
 值得单独提的几个：
 
@@ -235,18 +235,67 @@ hackathon 完全可接受。
 | `testFuzz_accountingBalances` | 市场分账每一 wei 都有去处 |
 | `test_reduceMaxSupplyToZero_retainsDefinition` | 哨兵值 bug 的回归测试 |
 
-## 部署
+## 部署到 Monad
+
+| | chain ID | RPC |
+|---|---|---|
+| 测试网 | `10143` | `https://testnet-rpc.monad.xyz` |
+| 主网 | `143` | `https://rpc.monad.xyz` |
 
 ```bash
 export PRIVATE_KEY=0x...
-export REWARD_SIGNER_ADDRESS=0x...   # 后端签发 voucher 的地址
+export REWARD_SIGNER_ADDRESS=0x...            # 后端签发 voucher 的地址
+export MONAD_TESTNET_RPC_URL=https://testnet-rpc.monad.xyz
 
-forge script script/Deploy.s.sol:Deploy --rpc-url base_sepolia --broadcast --verify
+forge script script/Deploy.s.sol:Deploy --rpc-url monad_testnet --broadcast
 
 # 灌 demo 款式（可选给测试地址发两件）
 REGISTRY_ADDRESS=0x... DISTRIBUTOR_ADDRESS=0x... DEMO_PLAYER=0x... \
-  forge script script/SeedSkins.s.sol:SeedSkins --rpc-url base_sepolia --broadcast
+  forge script script/SeedSkins.s.sol:SeedSkins --rpc-url monad_testnet --broadcast
 ```
+
+### 验证走 Sourcify，不是 Etherscan
+
+```bash
+forge verify-contract <address> WeaponSkin \
+  --chain 10143 \
+  --verifier sourcify \
+  --verifier-url https://sourcify-api-monad.blockvision.org/
+```
+
+两个容易踩的点：
+
+- **`--verifier-url` 结尾的斜杠不能省**，少了会验证失败；
+- `foundry.toml` 里已经配好 `bytecode_hash = "none"` + `use_literal_content = true`，
+  这是 Sourcify 需要的（不写 IPFS 哈希、源码内联）。
+
+因为不走 Etherscan，`forge script` 的 `--verify` 一把梭不适用，部署后单独验证每个合约。
+
+### `evm_version` 必须是 cancun
+
+Monad 支持到 Cancun 分叉为止，**不支持 Prague 操作码**。`foundry.toml` 里已显式
+钉死 `evm_version = "cancun"`。
+
+不要删掉这行去吃 solc 的默认值 —— 默认值会随编译器升级漂移，哪天升到默认 prague
+就会编译出 Monad 上无法部署的字节码，而且要到部署那一刻才发现。
+
+### 移交权限
 
 `Deploy` 脚本在 `ADMIN_ADDRESS` 与部署者不同时，会把全部角色转给 admin 并
 撤掉部署者的权限。**主网部署必须用这条路径**，部署密钥不应长期持有权限。
+
+## Monad 并行执行下的存储热点
+
+Monad 乐观并行执行交易，写同一个 storage slot 的交易会冲突并被重新执行。
+不影响正确性，影响吞吐。这套合约有两处：
+
+| 热点 | 冲突范围 |
+|------|---------|
+| `GameAssetRegistry._skins[id].minted` | 同款皮肤的并发铸造 —— 这是发行上限的强制点，本来就必须串行 |
+| `ERC721Enumerable._allTokens` 长度槽 | **整个 collection 的每次铸造/销毁**，全局热点 |
+
+在顺序执行的链上 Enumerable 只让我多花 gas；在 Monad 上它还吃并行度。
+
+**当前不改** —— hackathon 的并发量到不了有影响的量级。但换掉 Enumerable 的触发
+条件多了一条：除了"gas 成为瓶颈"，还有"持续高并发铸造"（赛季结算上万人同时领奖）。
+届时改为自建 indexer + 去掉 Enumerable，铸造之间就不再互相冲突。

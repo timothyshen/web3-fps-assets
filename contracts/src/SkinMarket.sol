@@ -8,7 +8,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {ISkinMarket} from "./interfaces/ISkinMarket.sol";
 
 /// @title SkinMarket
-/// @notice 极简固定价格市场：挂单 / 撤单 / 购买，ETH 计价，按 EIP-2981 分版税。
+/// @notice 极简固定价格市场：挂单 / 撤单 / 购买，原生币计价（Monad 上是 MON），按 EIP-2981 分版税。
 /// @dev 存在的理由见 ISkinMarket。这是 demo 用的最小可行市场，不是要跟 Seaport 竞争。
 ///
 ///      刻意的简化（上主网前需要重新评估）：

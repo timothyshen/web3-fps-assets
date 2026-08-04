@@ -12,7 +12,7 @@ Hackathon 项目。本仓库只负责 Web3 侧；Unity 客户端与权威游戏�
 
 ## 状态
 
-合约与抽象层已完成，`forge test` 72 个测试全绿（含 4 个 invariant）。
+合约与抽象层已完成，`forge test` 73 个测试全绿（含 4 个 invariant）。
 资产后端与 Web 应用待建，见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 目录
@@ -25,7 +25,7 @@ contracts/              Foundry 工程
     WeaponSkin.sol          ERC-721，不可升级
     RewardDistributor.sol   EIP-712 voucher + 幂等直铸
     SkinMarket.sol          demo 市场
-  test/                 72 个测试，含 invariant
+  test/                 73 个测试，含 invariant
   script/               部署与灌数据
 api/openapi.yaml        资产后端的 REST 契约（Web3 侧实现）
 packages/unity-sdk/     给 Unity 的抽象层（拷 Runtime/ 进工程即可）
@@ -48,12 +48,12 @@ docs/
 
 ```bash
 cd contracts
-forge test                    # 72 个测试
+forge test                    # 73 个测试
 forge test --gas-report       # gas 明细
 
 export PRIVATE_KEY=0x...
 export REWARD_SIGNER_ADDRESS=0x...
-forge script script/Deploy.s.sol:Deploy --rpc-url base_sepolia --broadcast
+forge script script/Deploy.s.sol:Deploy --rpc-url monad_testnet --broadcast
 ```
 
 Unity 侧：把 `packages/unity-sdk/Runtime/` 拷进工程，先用 `MockGameAssetGateway`
