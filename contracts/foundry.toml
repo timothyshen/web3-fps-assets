@@ -16,7 +16,6 @@ gas_reports = ["WeaponSkin", "RewardDistributor", "SkinMarket", "GameAssetRegist
 evm_version = "cancun"
 
 # Sourcify 验证需要：源码内联、不写 IPFS 哈希
-metadata = true
 bytecode_hash = "none"
 use_literal_content = true
 

@@ -8,21 +8,24 @@ import {GameAssetRegistry} from "../src/GameAssetRegistry.sol";
 import {WeaponSkin} from "../src/WeaponSkin.sol";
 import {RewardDistributor} from "../src/RewardDistributor.sol";
 import {SkinMarket} from "../src/SkinMarket.sol";
+import {MatchAttestation} from "../src/MatchAttestation.sol";
+import {TournamentEscrow} from "../src/TournamentEscrow.sol";
 
 /// @notice 一次性部署全套合约并接好权限。
 ///
 /// 用法：
 ///   forge script script/Deploy.s.sol:Deploy \
-///     --rpc-url base_sepolia --broadcast --verify
+///     --rpc-url monad_testnet --broadcast
 ///
 /// 必需环境变量：
 ///   PRIVATE_KEY             部署者私钥
-///   REWARD_SIGNER_ADDRESS   后端签发 voucher 的地址（对应 KMS 里的密钥）
+///   REWARD_SIGNER_ADDRESS   后端签发 voucher 的地址
 /// 可选：
 ///   ADMIN_ADDRESS           默认为部署者
 ///   TREASURY_ADDRESS        版税收款地址，默认为 admin
 ///   BASE_TOKEN_URI          元数据 API 前缀
 ///   ROYALTY_BPS             版税基点，默认 500 (5%)
+///   MATCH_ATTESTER_ADDRESS  提交对局存证的游戏服务器地址，默认同 REWARD_SIGNER
 contract Deploy is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
@@ -54,7 +57,15 @@ contract Deploy is Script {
         // 5. demo 市场
         SkinMarket market = new SkinMarket(address(skin));
 
-        // 6. 把控制权交给最终 admin，并撤掉部署者的权限
+        // 6. 对局结果存证 —— 游戏服务器是 attester
+        MatchAttestation attestation = new MatchAttestation(deployer);
+        address matchAttester = vm.envOr("MATCH_ATTESTER_ADDRESS", rewardSigner);
+        attestation.grantRole(attestation.ATTESTER_ROLE(), matchAttester);
+
+        // 7. 赛事奖池托管 —— 无 owner、无管理员，任何人都能开赛事
+        TournamentEscrow escrow = new TournamentEscrow();
+
+        // 8. 把控制权交给最终 admin，并撤掉部署者的权限
         if (admin != deployer) {
             registry.transferOwnership(admin);
 
@@ -69,7 +80,12 @@ contract Deploy is Script {
             distributor.renounceRole(distributor.OPERATOR_ROLE(), deployer);
             distributor.renounceRole(distributor.SIGNER_ADMIN_ROLE(), deployer);
             distributor.renounceRole(distributor.DEFAULT_ADMIN_ROLE(), deployer);
+
+            attestation.grantRole(attestation.DEFAULT_ADMIN_ROLE(), admin);
+            attestation.renounceRole(attestation.ATTESTER_ROLE(), deployer);
+            attestation.renounceRole(attestation.DEFAULT_ADMIN_ROLE(), deployer);
         }
+        // TournamentEscrow 没有任何管理员角色，无需移交。
 
         vm.stopBroadcast();
 
@@ -77,8 +93,11 @@ contract Deploy is Script {
         console2.log("WeaponSkin        :", address(skin));
         console2.log("RewardDistributor :", address(distributor));
         console2.log("SkinMarket        :", address(market));
+        console2.log("MatchAttestation  :", address(attestation));
+        console2.log("TournamentEscrow  :", address(escrow));
         console2.log("admin             :", admin);
         console2.log("rewardSigner      :", rewardSigner);
+        console2.log("matchAttester     :", matchAttester);
         console2.log("treasury          :", treasury);
     }
 }

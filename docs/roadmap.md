@@ -8,11 +8,13 @@
 | `WeaponSkin` —— ERC-721 + Enumerable + 2981 | 完成，测试覆盖 |
 | `RewardDistributor` —— voucher + 幂等直铸 | 完成，测试覆盖 |
 | `SkinMarket` —— demo 市场 | 完成，测试覆盖 |
+| `TournamentEscrow` —— 赛事奖池托管 | 完成，含偿付能力 invariant |
+| `MatchAttestation` —— 对局结果存证 | 完成，测试覆盖 |
 | 部署 + 灌数据脚本 | 完成，未在测试网实跑 |
 | `IGameAssetGateway` + Mock + Http 实现 | 完成 |
 | `api/openapi.yaml` 后端契约 | 完成 |
 
-`forge test` 73 个测试全绿，含 4 个 invariant。
+`forge test` 125 个测试全绿，含 7 个 invariant。
 
 ## 下一步（按依赖顺序）
 
