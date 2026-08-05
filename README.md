@@ -50,15 +50,29 @@ docs/
 
 ## 快速开始
 
+首次克隆后要先装依赖 —— `contracts/lib/` 是第三方仓库，没有提交进来：
+
 ```bash
 cd contracts
+forge install OpenZeppelin/openzeppelin-contracts@v5.1.0
+forge install foundry-rs/forge-std
+
 forge test                    # 125 个测试
 forge test --gas-report       # gas 明细
+```
 
-export PRIVATE_KEY=0x...
-export REWARD_SIGNER_ADDRESS=0x...
+需要 Foundry（`curl -L https://foundry.paradigm.xyz | bash && foundryup`）。
+
+部署到 Monad 测试网：
+
+```bash
+cp ../.env.example ../.env    # 填 PRIVATE_KEY 和 REWARD_SIGNER_ADDRESS
+source ../.env
+
 forge script script/Deploy.s.sol:Deploy --rpc-url monad_testnet --broadcast
 ```
+
+验证走 Sourcify 而非 Etherscan，命令见 [docs/contracts.md](docs/contracts.md)。
 
 Unity 侧：把 `packages/unity-sdk/Runtime/` 拷进工程，先用 `MockGameAssetGateway`
 开发，后端就绪后换成 `HttpGameAssetGateway`，其余代码不用改。
