@@ -19,6 +19,9 @@ evm_version = "cancun"
 bytecode_hash = "none"
 use_literal_content = true
 
+# 只读访问跨语言测试夹具（MatchResult 规范化向量）
+fs_permissions = [{access = "read", path = "../fixtures"}]
+
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "forge-std/=lib/forge-std/src/",

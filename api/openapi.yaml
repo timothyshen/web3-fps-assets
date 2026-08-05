@@ -2,19 +2,23 @@ openapi: 3.1.0
 
 info:
   title: FPS Web3 Asset Gateway
-  version: 0.1.0
+  version: 0.2.0
   description: |
     游戏后端暴露给 Unity 客户端的资产接口。这是 Web3 侧与游戏侧之间的**唯一契约**。
 
     分工：
       - Web3 侧（本仓库）负责实现这套 API，以及它背后的合约调用与签名。
-      - Unity 侧只依赖 `IGameAssetGateway`（packages/unity-sdk），不关心链。
+      - Unity 侧只依赖 `IGameAssetGateway` / `ITournamentGateway`
+        （packages/unity-sdk），不关心链。
 
-    两条铁律：
+    三条铁律：
       1. 客户端上报的资产信息一律不可信。`PUT /v1/loadout` 只是"意图"，
-         服务器必须独立校验所有权。
+         服务器必须独立校验所有权。（PRD NFR-004）
       2. 本 API 的任何故障都不得阻断核心游戏体验。客户端应捕获错误并降级到
-         默认皮肤，而不是拦住玩家进游戏。
+         默认皮肤，而不是拦住玩家进游戏。（PRD NFR-002）
+      3. Unity 不硬编码 chainId 与合约地址，一律从 `GET /v1/config` 读取。
+
+    需求编号对应 `Unity3D Web3 FPS 游戏侧需求 v1.0`。
 
 servers:
   - url: https://api.example.com
@@ -24,12 +28,33 @@ security:
   - gameSession: []
 
 paths:
+  # ==================================================================
+  # 配置
+  # ==================================================================
+  /v1/config:
+    get:
+      summary: 链与合约配置
+      description: |
+        Unity 与 Web 端启动时拉一次。**客户端不得硬编码 chainId 或合约地址**
+        （PRD 附录 A），换网络时只改后端配置。
+      operationId: getConfig
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ChainConfig"}
+
+  # ==================================================================
+  # 资产
+  # ==================================================================
   /v1/assets:
     get:
       summary: 玩家的皮肤库存与待领奖励
       description: |
-        大厅进入时调用一次。**不要在对局中调用** —— 进入对局后资产快照已由
-        游戏服务器冻结。
+        大厅进入时调用一次。**不要在对局中调用**（PRD COM-002）—— 进入对局后
+        资产快照已由游戏服务器冻结。
 
         数据来自后端缓存，不实时查链。`stalenessSeconds` 告知滞后程度。
       operationId: getPlayerAssets
@@ -41,12 +66,36 @@ paths:
               schema: {$ref: "#/components/schemas/PlayerAssets"}
         "401": {$ref: "#/components/responses/Unauthorized"}
 
+  /v1/loadout:
+    put:
+      summary: 提交出场配置
+      description: |
+        服务器必须校验每个 tokenId 当前确实属于该玩家且状态为 confirmed
+        （PRD AST-004）。任何一项不通过就整体拒绝。
+      operationId: setLoadout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/LoadoutRequest"}
+      responses:
+        "204": {description: 已保存}
+        "403":
+          description: 配置中包含玩家未拥有或未确认的资产
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
+  # ==================================================================
+  # 钱包绑定
+  # ==================================================================
   /v1/wallet/bind:
     post:
       summary: 发起钱包绑定
       description: |
-        返回的 `bindUrl` 必须在**系统浏览器**中打开，不能用 Unity 内嵌 WebView。
-        绑定页面走 SIWE（EIP-4361）签名，后端验签后把 playerId ↔ address 关联。
+        返回的 `bindUrl` 必须在**系统浏览器**中打开，不能用 Unity 内嵌 WebView
+        （PRD ACC-003）。绑定页面走 SIWE（EIP-4361）签名，后端验签后把
+        playerId ↔ address 关联。
 
         后端不持有玩家私钥，只记录地址。
       operationId: beginWalletBind
@@ -58,7 +107,7 @@ paths:
               schema: {$ref: "#/components/schemas/WalletBindSession"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "409":
-          description: 该账号已绑定钱包，换绑需走冷却流程
+          description: 该账号已绑定钱包，换绑需重新认证（PRD ACC-006）
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Error"}
@@ -80,19 +129,23 @@ paths:
               schema: {$ref: "#/components/schemas/WalletBindStatus"}
         "404": {$ref: "#/components/responses/NotFound"}
 
+  # ==================================================================
+  # 奖励
+  # ==================================================================
   /v1/rewards/{rewardId}/claim:
     post:
       summary: 请求领取奖励
       description: |
-        后端可以用两种方式实现，客户端不需要知道是哪种：
+        后端可以用两种方式实现，客户端不需要知道是哪种（PRD RWD-002）：
 
-        - **push**（`requiresPlayerAction: false`）：后端用 OPERATOR_ROLE 调
-          `RewardDistributor.mintDirect`，后端付 gas，玩家零操作。
-          必须传幂等的 requestId，重试不会重复发奖。demo 体验最顺。
+        - **push**（`requiresPlayerAction: false`）：后端调
+          `RewardDistributor.mintDirect`，后端付 gas，玩家零操作。MVP 默认路径。
         - **pull**（`requiresPlayerAction: true`）：后端签发 EIP-712 voucher，
-          返回一个让玩家在浏览器里确认的 `actionUrl`。未领取的奖励不上链。
+          返回让玩家在浏览器里确认的 `actionUrl`。保留给高价值奖励。
 
-        这个接口必须幂等：重复调用同一 rewardId 不产生第二次铸造。
+        **必须幂等**（PRD RWD-005）：重复调用同一 rewardId 不产生第二次铸造。
+        合约侧 requestId 由 `matchId + playerId + rewardSlot` 派生
+        （PRD RWD-003），后端也要在自己的表上建唯一索引。
       operationId: requestClaim
       parameters:
         - name: rewardId
@@ -107,7 +160,7 @@ paths:
               schema: {$ref: "#/components/schemas/ClaimTicket"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409":
-          description: 尚未绑定钱包，或奖励已领取/已过期
+          description: 尚未绑定钱包、风控未放行（held）、或奖励已领取/已过期
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Error"}
@@ -129,32 +182,129 @@ paths:
               schema: {$ref: "#/components/schemas/RewardStatus"}
         "404": {$ref: "#/components/responses/NotFound"}
 
-  /v1/loadout:
-    put:
-      summary: 提交出场配置
+  # ==================================================================
+  # 对局结果
+  # ==================================================================
+  /v1/matches/{matchId}:
+    get:
+      summary: 对局结果包与存证状态
       description: |
-        服务器必须校验每个 tokenId 当前确实属于该玩家且状态为 confirmed。
-        任何一项不通过就整体拒绝。
-      operationId: setLoadout
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: "#/components/schemas/LoadoutRequest"}
+        存证核验的另一半（PRD MAT-005）。链上只存 `resultHash`，完整结果包从
+        这里取，任何人拿到后自己规范化 + 算哈希再与链上比对。
+
+        `canonicalJson` 是**已按 RFC 8785 JCS 规范化**的字节，调用方应当直接对
+        它算 keccak256，而不是先反序列化再自己序列化 —— 后者极易因实现差异导致
+        哈希不一致。
+      operationId: getMatch
+      security: []
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema: {type: string}
       responses:
-        "204": {description: 已保存}
-        "403":
-          description: 配置中包含玩家未拥有的资产
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MatchRecord"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  # ==================================================================
+  # 赛事（PRD TRN-001~008）
+  # ==================================================================
+  /v1/tournaments:
+    get:
+      summary: 赛事列表
+      operationId: listTournaments
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [open, settled, cancelled]}
+        - name: cursor
+          in: query
+          schema: {type: string}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: "#/components/schemas/TournamentSummary"}
+                  nextCursor: {type: string}
+
+  /v1/tournaments/{tournamentId}:
+    get:
+      summary: 赛事详情
+      description: |
+        必须完整展示 organizer、resultSubmitter、entryFee、人数上下限、
+        organizerFeeBps 与 payoutBps（PRD TRN-002）—— 报名者事前要能看到
+        自己在信任谁、组织者最多抽多少。
+      operationId: getTournament
+      parameters:
+        - name: tournamentId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TournamentDetail"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /v1/tournaments/{tournamentId}/intents/{action}:
+    post:
+      summary: 生成赛事链上操作的跳转意图
+      description: |
+        报名支付、赞助、领奖、退款都是**链上交易**，Unity 不签名，只拿到
+        `actionUrl` 后跳系统浏览器完成（PRD TRN-003）。
+
+        后端在这里只做可行性预检（报名是否已满、是否到了可领奖状态等），
+        真正的约束仍由合约强制。
+      operationId: createTournamentIntent
+      parameters:
+        - name: tournamentId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [register, sponsor, claim-prize, claim-refund]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TournamentIntent"}
+        "409":
+          description: 当前状态不允许该操作
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Error"}
 
+  # ==================================================================
+  # 服务器到服务器
+  # ==================================================================
   /internal/v1/entitlement-check:
     post:
       summary: 开局前的资产核验（服务器到服务器）
       description: |
-        由**游戏服务器**调用，不是客户端。返回的 snapshotId 即开局快照，
-        游戏服务器持有它直到本局结束；对局期间玩家转移 NFT 不影响本局渲染。
+        由**游戏服务器**调用，不是客户端（PRD AST-005）。返回的 snapshotId 即
+        开局快照，游戏服务器持有它直到本局结束；对局期间玩家转移 NFT 不影响
+        本局渲染。
+
+        **依赖不可用时返回默认皮肤快照，而不是拒绝加入对局**（PRD AST-006）。
+        此时 `allowed` 仍为 true，`degraded` 标记为 true。
 
         这个端点不在 `IGameAssetGateway` 里 —— Unity 客户端不应该能调用它。
       operationId: entitlementCheck
@@ -166,9 +316,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [playerId, tokenIds]
+              required: [playerId, matchId, tokenIds]
               properties:
                 playerId: {type: string}
+                matchId: {type: string}
+                wallet: {type: string}
                 tokenIds:
                   type: array
                   items: {type: string}
@@ -177,22 +329,43 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                type: object
-                required: [valid, snapshotId]
-                properties:
-                  valid: {type: boolean}
-                  snapshotId: {type: string}
-                  items:
-                    type: array
-                    items: {$ref: "#/components/schemas/SkinItem"}
+              schema: {$ref: "#/components/schemas/EntitlementResult"}
+
+  /internal/v1/matches:
+    post:
+      summary: 推送对局结果包（服务器到服务器）
+      description: |
+        权威游戏服务器在对局结束后推送。后端负责持久化、派生 rewardId、
+        创建存证任务。
+
+        幂等键是 `matchId`；同一 matchId 的结果包发布后**不得在原记录上静默修改**
+        （PRD MAT-002）。重复推送返回既有记录，不报错。
+      operationId: submitMatchResult
+      security:
+        - serviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/MatchResult"}
+      responses:
+        "200":
+          description: 已接受（含重复推送）
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MatchRecord"}
+        "409":
+          description: 同一 matchId 已存在且内容不同
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
 
 components:
   securitySchemes:
     gameSession:
       type: http
       scheme: bearer
-      description: 游戏账号的会话 token。身份是账号，不是钱包。
+      description: 游戏账号的会话 token。身份是 playerId，不是钱包（PRD ACC-001）。
     serviceToken:
       type: http
       scheme: bearer
@@ -218,20 +391,62 @@ components:
         code:
           type: string
           description: 机器可读错误码
-          examples: ["wallet_not_bound", "reward_not_found", "not_owned"]
+          examples: ["wallet_not_bound", "reward_not_found", "not_owned", "reward_held"]
         message: {type: string}
+
+    ChainConfig:
+      type: object
+      required: [chainId, chainName, nativeCurrency, explorerBaseUrl, contracts]
+      properties:
+        chainId:
+          type: integer
+          description: Monad 测试网 10143 / 主网 143
+          examples: [10143]
+        chainName: {type: string, examples: ["Monad Testnet"]}
+        nativeCurrency:
+          type: object
+          required: [symbol, decimals]
+          properties:
+            symbol: {type: string, examples: ["MON"]}
+            decimals: {type: integer, examples: [18]}
+        isTestnet:
+          type: boolean
+          description: |
+            为 true 时 UI 必须显式标注"测试网"，避免玩家把测试资产
+            误认为真实货币（PRD TRN-008）。
+        explorerBaseUrl: {type: string, format: uri}
+        marketplaceUrl:
+          type: string
+          format: uri
+          description: 外部 Web 市场入口（PRD MKT-001）
+        contracts:
+          type: object
+          required: [weaponSkin, rewardDistributor, tournamentEscrow, matchAttestation]
+          properties:
+            gameAssetRegistry: {type: string}
+            weaponSkin: {type: string}
+            rewardDistributor: {type: string}
+            skinMarket: {type: string}
+            matchAttestation: {type: string}
+            tournamentEscrow: {type: string}
 
     SkinItem:
       type: object
-      required: [tokenId, skinDefId, serial, maxSupply, wear, rarity, seasonId, bundleUri, contentHash, state]
+      required:
+        [tokenId, skinDefId, name, serial, maxSupply, wear, rarity, seasonId,
+         previewKey, bundleUri, contentHash, state]
       properties:
         tokenId:
           type: string
           description: |
             链上 tokenId = (skinDefId << 32) | serial。
-            **必须序列化为字符串** —— uint256 放不进 JS 的 number 或 C# 的 ulong。
+            **十进制字符串**，禁止转换为 ulong（PRD AST-002）。
           examples: ["4475210235940901"]
         skinDefId: {type: integer, format: int64}
+        name:
+          type: string
+          description: 展示名称，已按玩家语言本地化
+          examples: ["霜蚀 AK-47"]
         serial: {type: integer, format: int64, description: "款式内序号，从 1 开始"}
         maxSupply: {type: integer, format: int64, description: "用于展示 #37 / 500"}
         wear:
@@ -242,25 +457,35 @@ components:
           description: 后端已从链上的万分比整数换算
         rarity: {type: integer, minimum: 0, maximum: 4}
         seasonId: {type: integer, format: int64}
+        previewKey:
+          type: string
+          description: |
+            缩略图/资源键，供客户端从本地资源目录或 CDN 取预览图
+            （PRD AST-003）。不是完整 URL，避免客户端被投毒。
         bundleUri: {type: string, format: uri}
         contentHash:
           type: string
           pattern: "^0x[0-9a-f]{64}$"
           description: |
-            AssetBundle 的 keccak256 承诺。客户端下载后必须本地校验。
+            AssetBundle 的 keccak256 承诺。客户端下载后必须本地校验，
+            不一致时降级默认资源并告警（PRD NFR-008）。
             注意 keccak256 与 SHA3-256 的 padding 不同，不能用标准库 SHA3。
         state:
           type: string
           enum: [confirmed, pending]
-          description: pending 表示链上尚未达到确认数，不可用于 loadout
+          description: |
+            pending 表示链上尚未达到最终确认策略，**不可用于正式 loadout**
+            （PRD AST-004 / NFR-007）。
 
     PendingReward:
       type: object
-      required: [rewardId, skinDefId, rarity, expiresAt]
+      required: [rewardId, skinDefId, rarity, state, expiresAt]
       properties:
         rewardId: {type: string}
         skinDefId: {type: integer, format: int64}
+        name: {type: string}
         rarity: {type: integer}
+        state: {$ref: "#/components/schemas/RewardState"}
         expiresAt: {type: string, format: date-time}
 
     PlayerAssets:
@@ -279,7 +504,7 @@ components:
           items: {$ref: "#/components/schemas/PendingReward"}
         stalenessSeconds:
           type: integer
-          description: 后端数据相对链上的滞后秒数
+          description: 后端数据相对链上的滞后秒数，UI 据此展示"同步中"（PRD AST-008）
 
     WalletBindSession:
       type: object
@@ -297,20 +522,50 @@ components:
         wallet: {type: string}
         error: {type: string}
 
+    RewardState:
+      type: string
+      description: |
+        奖励状态机（PRD RWD-004）：
+
+          earned        对局结算已产生，尚未进入风控判定
+          held          反作弊/风控未放行，不可领取（PRD RWD-001）
+          claimable     可领取
+          processing    后端处理中（签名/构造交易）
+          pending_chain 交易已提交，等待链上最终确认
+          confirmed     已确认，NFT 可装备
+          failed        失败，可重试
+
+        **只有 confirmed 才能装备**（PRD RWD-006）。
+      enum: [earned, held, claimable, processing, pending_chain, confirmed, failed]
+
     ClaimTicket:
       type: object
-      required: [rewardId, requiresPlayerAction]
+      required: [rewardId, state, requiresPlayerAction]
       properties:
         rewardId: {type: string}
-        requiresPlayerAction: {type: boolean}
-        actionUrl: {type: string, format: uri}
+        state: {$ref: "#/components/schemas/RewardState"}
+        requiresPlayerAction:
+          type: boolean
+          description: false = push（后端直铸）；true = pull（玩家浏览器确认）
+        actionUrl:
+          type: string
+          format: uri
+          description: requiresPlayerAction 为 true 时才有值
 
     RewardStatus:
       type: object
-      required: [state]
+      required: [rewardId, state]
       properties:
-        state: {type: string, enum: [claimable, claiming, claimed, failed, expired]}
-        tokenId: {type: string}
+        rewardId: {type: string}
+        state: {$ref: "#/components/schemas/RewardState"}
+        tokenId:
+          type: string
+          description: state 为 confirmed 时有值
+        txHash:
+          type: string
+          description: |
+            交易哈希，pending_chain 之后有值。UI 可据此跳区块浏览器；
+            也是排查问题的关键线索（PRD NFR-006）。
         error: {type: string}
 
     LoadoutRequest:
@@ -321,3 +576,224 @@ components:
           type: array
           description: 按武器槽位排列；空字符串表示该槽位用默认皮肤
           items: {type: string}
+
+    # ---- 对局结果 ----
+
+    MatchResult:
+      type: object
+      description: |
+        权威游戏服务器产出的标准结果包（PRD 7.2）。
+
+        **哈希规则**（PRD MAT-003，务必严格遵守，否则跨语言算出的哈希对不上）：
+          1. UTF-8 编码
+          2. 按 RFC 8785 JSON Canonicalization Scheme 规范化
+          3. 对规范化后的字节算 keccak256
+
+        链上键为 `keccak256(UTF-8(matchId))`（PRD MAT-004）。
+        参考向量见 `fixtures/match-result-v1.json`。
+      required:
+        [version, matchId, modeId, mapId, startedAt, endedAt, serverBuild,
+         players, antiCheatState]
+      properties:
+        version: {type: string, examples: ["1.0"]}
+        matchId:
+          type: string
+          description: 全局唯一，生成后不可复用
+        modeId: {type: string, description: "稳定配置 ID，不使用本地化名称"}
+        mapId: {type: string}
+        startedAt: {type: integer, format: int64, description: "UTC Unix 秒"}
+        endedAt: {type: integer, format: int64, description: "≥ startedAt"}
+        serverBuild: {type: string}
+        tournamentId:
+          type: [string, "null"]
+          description: 赛事局对应链上 tournamentId，非赛事局为 null
+        players:
+          type: array
+          description: 按 playerId 升序排列
+          items:
+            type: object
+            required: [playerId, teamId, kills, deaths, score, placement, result]
+            properties:
+              playerId: {type: string}
+              teamId: {type: string}
+              kills: {type: integer}
+              deaths: {type: integer}
+              score: {type: integer}
+              placement: {type: integer}
+              result: {type: string, enum: [win, loss, draw]}
+        antiCheatState:
+          type: string
+          enum: [passed, held, rejected]
+          description: held/rejected 禁止立即发高价值奖励
+        rewardSlots:
+          type: array
+          items:
+            type: object
+            required: [slot, playerId, rewardId]
+            properties:
+              slot: {type: integer}
+              playerId: {type: string}
+              rewardId: {type: string}
+
+    MatchRecord:
+      type: object
+      required: [matchId, resultHash, canonicalJson, attestation]
+      properties:
+        matchId: {type: string}
+        resultHash:
+          type: string
+          pattern: "^0x[0-9a-f]{64}$"
+        canonicalJson:
+          type: string
+          description: |
+            已按 RFC 8785 规范化的结果包字节。**调用方应直接对它算 keccak256**，
+            不要先反序列化再自己序列化。
+        result: {$ref: "#/components/schemas/MatchResult"}
+        attestation:
+          type: object
+          required: [state]
+          properties:
+            state:
+              type: string
+              enum: [pending, attested, failed]
+              description: 存证失败不影响赛后页与战绩展示（PRD MAT-006）
+            txHash: {type: string}
+            explorerUrl: {type: string, format: uri}
+            attestedAt: {type: string, format: date-time}
+
+    EntitlementResult:
+      type: object
+      required: [allowed, snapshotId, resolvedSkins, rejectedTokenIds, cacheAgeSeconds, degraded]
+      properties:
+        allowed:
+          type: boolean
+          description: |
+            即使部分资产核验失败也应为 true —— 失败的槽位回退默认皮肤，
+            **不阻断开局**（PRD AST-006）。
+        snapshotId:
+          type: string
+          description: 本局资产快照 ID，游戏服务器持有到对局结束
+        resolvedSkins:
+          type: array
+          description: 每个槽位最终生效的外观（含回退后的默认皮肤）
+          items:
+            type: object
+            required: [slot, skinDefId, contentHash]
+            properties:
+              slot: {type: integer}
+              tokenId: {type: string}
+              skinDefId: {type: integer, format: int64}
+              contentHash: {type: string}
+              isDefault: {type: boolean}
+        rejectedTokenIds:
+          type: array
+          description: 被拒绝的 tokenId 及原因，供日志与风控分析（PRD AC-04）
+          items:
+            type: object
+            required: [tokenId, reason]
+            properties:
+              tokenId: {type: string}
+              reason:
+                type: string
+                enum: [not_owned, not_confirmed, content_hash_mismatch, unknown_token]
+        cacheAgeSeconds: {type: integer}
+        degraded:
+          type: boolean
+          description: true 表示依赖故障、返回的是默认皮肤兜底快照
+
+    # ---- 赛事 ----
+
+    TournamentStatus:
+      type: string
+      description: 与合约一致；Settled 与 Cancelled 为终态（PRD TRN-004）
+      enum: [open, settled, cancelled]
+
+    TournamentSummary:
+      type: object
+      required: [tournamentId, status, entryFee, prizePool, participantCount, maxParticipants,
+                 registrationDeadline]
+      properties:
+        tournamentId: {type: string}
+        title: {type: string}
+        status: {$ref: "#/components/schemas/TournamentStatus"}
+        entryFee: {$ref: "#/components/schemas/Amount"}
+        prizePool: {$ref: "#/components/schemas/Amount"}
+        participantCount: {type: integer}
+        minParticipants: {type: integer}
+        maxParticipants: {type: integer}
+        registrationDeadline: {type: string, format: date-time}
+        isRegistered: {type: boolean}
+
+    TournamentDetail:
+      allOf:
+        - $ref: "#/components/schemas/TournamentSummary"
+        - type: object
+          required: [organizer, resultSubmitter, organizerFeeBps, payoutBps, resultDeadline]
+          properties:
+            organizer:
+              type: string
+              description: 组织者地址。UI 必须展示（PRD TRN-002）
+            resultSubmitter:
+              type: string
+              description: |
+                唯一有权提交名次的地址。**报名前必须展示** —— 这是玩家需要
+                预先审查的信任假设，报名后不可更换。
+            organizerFeeBps:
+              type: integer
+              description: 组织者抽成，合约硬上限 1000（10%）
+            payoutBps:
+              type: array
+              description: 按名次的分配比例，索引 0 是冠军，总和 10000
+              items: {type: integer}
+            resultDeadline:
+              type: string
+              format: date-time
+              description: 超过此时间未结算，任何人可触发取消并全额退款
+            cancelReason:
+              type: string
+              enum: [organizer_cancelled, not_enough_participants, result_deadline_passed]
+              description: status 为 cancelled 时必填，三种原因须分别展示（PRD TRN-005）
+            resultHash:
+              type: string
+              description: status 为 settled 时有值，引用同一赛事的最终对局结果包
+            winners:
+              type: array
+              description: 顺序与 payoutBps 名次一一对应（PRD TRN-006）
+              items:
+                type: object
+                required: [rank, wallet, amount]
+                properties:
+                  rank: {type: integer}
+                  wallet: {type: string}
+                  playerId: {type: string}
+                  amount: {$ref: "#/components/schemas/Amount"}
+            myClaimable:
+              $ref: "#/components/schemas/Amount"
+            myRefundable:
+              $ref: "#/components/schemas/Amount"
+
+    TournamentIntent:
+      type: object
+      required: [tournamentId, action, actionUrl]
+      properties:
+        tournamentId: {type: string}
+        action: {type: string, enum: [register, sponsor, claim-prize, claim-refund]}
+        actionUrl:
+          type: string
+          format: uri
+          description: 用系统浏览器打开，玩家在那里完成签名/支付
+        expiresAt: {type: string, format: date-time}
+
+    Amount:
+      type: object
+      description: |
+        金额一律同时给原始 wei 值和格式化值（PRD TRN-008），
+        UI 必须连同网络标识一起展示，避免把测试网资产误认为真实货币。
+      required: [wei, formatted, symbol]
+      properties:
+        wei:
+          type: string
+          description: 十进制字符串，禁止用 number（精度会丢）
+          examples: ["1000000000000000000"]
+        formatted: {type: string, examples: ["1.0"]}
+        symbol: {type: string, examples: ["MON"]}

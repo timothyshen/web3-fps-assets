@@ -1,0 +1,14 @@
+{
+  "description": "MatchResult 结果包哈希的跨语言参考向量。任何新增实现都必须对 match-result-v1.canonical.json 算出下列 resultHash。",
+  "spec": {
+    "encoding": "UTF-8",
+    "canonicalization": "RFC 8785 JSON Canonicalization Scheme",
+    "hash": "keccak256",
+    "note": "keccak256 与 SHA3-256 的 padding 不同，不能用标准库的 SHA3-256"
+  },
+  "canonicalFile": "match-result-v1.canonical.json",
+  "canonicalByteLength": 642,
+  "matchId": "m_01HXQZ8K3N4P5R6S7T8V9W",
+  "matchIdKey": "0x55d927078616dac9ef7817f2a797c9f13abb6b56e3a40b10f91f415bbba4cc05",
+  "resultHash": "0x9fe99ccb29be1c87314e8df93d1fe5d2e17a094d39282df072be17fae75de45d"
+}

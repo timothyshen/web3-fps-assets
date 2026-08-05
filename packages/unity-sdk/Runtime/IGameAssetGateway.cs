@@ -20,6 +20,12 @@ namespace Game.Web3
     /// </summary>
     public interface IGameAssetGateway
     {
+        /// <summary>
+        /// 链与合约配置。启动时拉一次即可。
+        /// **客户端不得硬编码 chainId 或合约地址**，换网络时只改后端配置。
+        /// </summary>
+        Task<ChainConfig> GetConfigAsync(CancellationToken ct = default);
+
         /// <summary>玩家当前拥有的皮肤 + 待领取的奖励。大厅进入时调用一次。</summary>
         Task<PlayerAssets> GetPlayerAssetsAsync(CancellationToken ct = default);
 

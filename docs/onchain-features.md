@@ -119,13 +119,19 @@ Created ──→ [Open] ──settle──→ [Settled] ──claimPrize──�
 
 链上只花 1 个 slot，却覆盖完整结果：
 
-1. 对局结束，游戏服务器把完整结果序列化成 blob：
-   `{matchId, players[], scores[], placements[], endedAt, ...}`
-2. `resultHash = keccak256(blob)`，调 `attest(matchId, resultHash)`
-3. blob 本身通过普通 API 提供（`GET /v1/matches/{matchId}`）
-4. 任何人拿到 blob 自己算哈希，与链上 `resultOf(matchId)` 比对
+1. 对局结束，游戏服务器序列化成 MatchResult 结果包
+2. **按 RFC 8785 JCS 规范化**，UTF-8 编码
+3. `resultHash = keccak256(规范化字节)`，调 `attest(matchIdKey, resultHash)`，
+   其中 `matchIdKey = keccak256(UTF-8(matchId))`
+4. 结果包本身通过普通 API 提供（`GET /v1/matches/{matchId}`）
+5. 任何人拿到后自己规范化 + 算哈希，与链上 `resultOf(matchIdKey)` 比对
 
-哈希覆盖了 blob 的每个字节 —— 改任何一个数字都对不上。
+哈希覆盖了每个字节 —— 改任何一个数字都对不上。
+
+**第 2 步不能省。** JSON 序列化在键序、Unicode 转义、数字格式上各语言实现各不
+相同；不规范化的话后端（TS）和客户端（C#）算出的哈希几乎必然不同，而且这种不一致
+要到联调那天才暴露。跨语言参考向量钉在 `fixtures/`，Solidity 侧断言见
+`test/MatchResultHash.t.sol` —— 新增任何语言实现都必须先过那组向量。
 
 ### 存储设计
 

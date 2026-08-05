@@ -14,7 +14,7 @@
 | `IGameAssetGateway` + Mock + Http 实现 | 完成 |
 | `api/openapi.yaml` 后端契约 | 完成 |
 
-`forge test` 125 个测试全绿，含 7 个 invariant。
+`forge test` 130 个测试全绿，含 7 个 invariant。
 
 ## 下一步（按依赖顺序）
 

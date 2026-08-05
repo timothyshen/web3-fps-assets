@@ -12,7 +12,7 @@ Hackathon 项目。本仓库只负责 Web3 侧；Unity 客户端与权威游戏�
 
 ## 状态
 
-合约与抽象层已完成，`forge test` 125 个测试全绿（含 7 个 invariant）。
+合约与抽象层已完成，`forge test` 130 个测试全绿（含 7 个 invariant）。
 资产后端与 Web 应用待建，见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 目录
@@ -30,6 +30,7 @@ contracts/              Foundry 工程
   test/                 125 个测试，含 7 个 invariant
   script/               部署与灌数据
 api/openapi.yaml        资产后端的 REST 契约（Web3 侧实现）
+fixtures/               结果包哈希的跨语言参考向量
 packages/unity-sdk/     给 Unity 的抽象层（拷 Runtime/ 进工程即可）
 docs/
 ```
@@ -57,7 +58,7 @@ cd contracts
 forge install OpenZeppelin/openzeppelin-contracts@v5.1.0
 forge install foundry-rs/forge-std
 
-forge test                    # 125 个测试
+forge test                    # 130 个测试
 forge test --gas-report       # gas 明细
 ```
 

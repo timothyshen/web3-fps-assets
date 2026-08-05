@@ -6,14 +6,23 @@ pragma solidity ^0.8.28;
 ///
 /// @dev **核验流程（链下 + 链上各承担一半）**
 ///
-///      1. 对局结束，游戏服务器把完整结果序列化成一个 JSON blob：
-///         `{matchId, players[], scores[], placements[], endedAt, ...}`
-///      2. 计算 `resultHash = keccak256(blob)`，调 `attest(matchId, resultHash)`
-///      3. blob 本身通过普通 API 提供（`GET /v1/matches/{matchId}`）
-///      4. 任何人拿到 blob 后自己算哈希，和链上 `resultOf(matchId)` 比对
+///      1. 对局结束，游戏服务器把完整结果序列化成 MatchResult：
+///         `{version, matchId, modeId, mapId, players[], antiCheatState, ...}`
+///      2. **按 RFC 8785 JSON Canonicalization Scheme 规范化**，UTF-8 编码
+///      3. `resultHash = keccak256(规范化后的字节)`，调 `attest(matchIdKey, resultHash)`
+///         其中 `matchIdKey = keccak256(UTF-8(matchId))`
+///      4. 结果包本身通过普通 API 提供（`GET /v1/matches/{matchId}`）
+///      5. 任何人拿到后自己规范化 + 算哈希，和链上 `resultOf(matchIdKey)` 比对
 ///
-///      这样链上只花 1 个 slot，却覆盖了完整结果 —— 因为哈希覆盖了 blob 的
-///      每一个字节。改任何一个数字，哈希就对不上。
+///      这样链上只花 1 个 slot，却覆盖了完整结果 —— 哈希覆盖了每一个字节，
+///      改任何一个数字都对不上。
+///
+///      **第 2 步不能省。** JSON 序列化在键序、Unicode 转义、数字格式上各语言
+///      实现各不相同；不规范化的话，后端（TS）和客户端（C#）对同一个结果包算出
+///      的哈希几乎必然不同，而且这种不一致要到联调那天才会暴露。
+///
+///      跨语言参考向量见 `fixtures/`，Solidity 侧的断言见
+///      `test/MatchResultHash.t.sol`。新增任何语言的实现都必须先过那组向量。
 ///
 ///      **它保证什么**：结果一旦公布就不能被悄悄修改。
 ///      **它不保证什么**：结果一开始就是真的。游戏服务器仍然可以在提交前

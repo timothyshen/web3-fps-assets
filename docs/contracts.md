@@ -220,7 +220,7 @@ hackathon 完全可接受。
 
 ## 测试
 
-`forge test` —— 125 个测试，含 7 个 invariant（各 256 轮 × 500 次调用）。
+`forge test` —— 130 个测试，含 7 个 invariant（各 256 轮 × 500 次调用）。
 
 值得单独提的几个：
 
