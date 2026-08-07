@@ -2,7 +2,7 @@ import { parseEventLogs } from "viem";
 import type { AppConfig } from "../config.js";
 import type { Db, RewardRow } from "../db.js";
 import type { TtlCache } from "../cache.js";
-import type { SkinItemDto } from "../chain/reads.js";
+import type { ClosetEntry } from "../chain/reads.js";
 import { rewardDistributorAbi } from "../chain/abi.js";
 import { isRpcUnavailable, revertErrorName, type ChainContext } from "../chain/client.js";
 
@@ -28,7 +28,7 @@ export class MintingService {
     private readonly config: AppConfig,
     private readonly db: Db,
     private readonly ctx: ChainContext,
-    private readonly assetsCache: TtlCache<SkinItemDto[]>,
+    private readonly assetsCache: TtlCache<ClosetEntry[]>,
   ) {}
 
   /** Kicks the mint job off in the background; never throws. */
@@ -101,7 +101,14 @@ export class MintingService {
         return;
       }
 
-      this.db.setRewardConfirmed(rewardId, minted.args.tokenId.toString(10), txHash);
+      // Record the mint block: it is the token's acquisition block for the
+      // finality window even when Transfer-log queries are unavailable.
+      this.db.setRewardConfirmed(
+        rewardId,
+        minted.args.tokenId.toString(10),
+        txHash,
+        Number(receipt.blockNumber),
+      );
       this.assetsCache.delete(wallet.toLowerCase());
     } catch (error) {
       const revertName = revertErrorName(error);
@@ -143,7 +150,12 @@ export class MintingService {
       );
       return;
     }
-    this.db.setRewardConfirmed(reward.reward_id, match.args.tokenId.toString(10), match.transactionHash);
+    this.db.setRewardConfirmed(
+      reward.reward_id,
+      match.args.tokenId.toString(10),
+      match.transactionHash,
+      match.blockNumber === null ? null : Number(match.blockNumber),
+    );
     this.assetsCache.delete(wallet.toLowerCase());
   }
 }

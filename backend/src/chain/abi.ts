@@ -49,6 +49,24 @@ export const weaponSkinAbi = [
     outputs: [{ name: "", type: "uint256" }],
   },
   {
+    type: "function",
+    name: "tokenURI",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "string" }],
+  },
+  // Standard ERC-721 Transfer (emitted by the OZ base WeaponSkin inherits);
+  // used to resolve a token's latest acquisition block for the finality window.
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: true },
+    ],
+  },
+  {
     type: "event",
     name: "SkinMinted",
     inputs: [

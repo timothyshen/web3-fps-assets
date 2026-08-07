@@ -12,7 +12,6 @@ import {
   stringToBytes,
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { createSiweMessage } from "viem/siwe";
 import { canonicalize } from "../../src/jcs.js";
 import { matchIdKeyOf, resultHashOf } from "../../src/hashing.js";
 import {
@@ -20,7 +19,13 @@ import {
   rewardDistributorAbi,
   weaponSkinAbi,
 } from "../../src/chain/abi.js";
-import { api, pollUntil, testEnv, testEscrowAbi } from "../helpers.js";
+import {
+  api,
+  pollUntil,
+  siweMessageFor as buildSiweMessage,
+  testEnv,
+  testEscrowAbi,
+} from "../helpers.js";
 
 /**
  * End-to-end suite against live anvil + the running backend (booted by
@@ -62,21 +67,8 @@ function siweMessageFor(input: {
   sessionId: string;
   expiresAt: string;
 }): string {
-  // Mirrors web/src/lib/siwe.ts buildBindMessage exactly.
-  return createSiweMessage({
-    domain: new URL(webOrigin).host,
-    uri: webOrigin,
-    address: input.address,
-    chainId: 31337,
-    version: "1",
-    nonce: input.nonce,
-    statement:
-      `Link this wallet to your game account (bind session ${input.sessionId}). ` +
-      "Signing is free and authorizes no transaction or spending.",
-    issuedAt: new Date(),
-    expirationTime: new Date(input.expiresAt),
-    requestId: input.sessionId,
-  });
+  // Mirrors web/src/lib/siwe.ts buildBindMessage exactly (shared helper).
+  return buildSiweMessage(webOrigin, input);
 }
 
 function baseMatchResult() {
@@ -449,6 +441,135 @@ describe("reward claim to confirmed", () => {
     });
     expect(claim.status).toBe(409);
     expect(claim.body.code).toBe("reward_held");
+  });
+});
+
+describe("anti-cheat review gate (internal)", () => {
+  it("rejects review calls without the service token", async () => {
+    const res = await api(baseUrl, "POST", "/internal/v1/rewards/rw_e2e_held_0/review", {
+      token: playerToken,
+      body: { decision: "release" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("404s an unknown reward", async () => {
+    const res = await api(baseUrl, "POST", "/internal/v1/rewards/rw_no_such/review", {
+      token: internalToken,
+      body: { decision: "release" },
+    });
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe("reward_not_found");
+  });
+
+  it("releases a held reward, which then claims through to confirmed", async () => {
+    const release = await api(baseUrl, "POST", "/internal/v1/rewards/rw_e2e_held_0/review", {
+      token: internalToken,
+      body: { decision: "release" },
+    });
+    expect(release.status).toBe(200);
+    expect(release.body).toEqual({ rewardId: "rw_e2e_held_0", state: "claimable" });
+
+    const claim = await api(baseUrl, "POST", "/v1/rewards/rw_e2e_held_0/claim", {
+      token: playerToken,
+    });
+    expect(claim.status).toBe(200);
+    const final = await pollUntil(
+      async () =>
+        (await api(baseUrl, "GET", "/v1/rewards/rw_e2e_held_0", { token: playerToken })).body,
+      (r: any) => r.state === "confirmed" || r.state === "failed",
+    );
+    expect(final.state).toBe("confirmed");
+    expect(final.tokenId).toMatch(/^[0-9]+$/);
+  });
+
+  it("release on an already-confirmed reward echoes its state (idempotent)", async () => {
+    const res = await api(baseUrl, "POST", "/internal/v1/rewards/rw_e2e_held_0/review", {
+      token: internalToken,
+      body: { decision: "release" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBe("confirmed");
+  });
+
+  it("rejecting a confirmed reward is a wrong_state conflict", async () => {
+    const res = await api(baseUrl, "POST", "/internal/v1/rewards/rw_e2e_held_0/review", {
+      token: internalToken,
+      body: { decision: "reject", reason: "too_late" },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("wrong_state");
+  });
+
+  it("rejects a held reward into a terminal failed state the client can display", async () => {
+    const held = baseMatchResult();
+    held.matchId = "m_e2e_held2";
+    held.antiCheatState = "held";
+    held.rewardSlots = [{ slot: 0, playerId: PLAYER_ID, rewardId: "rw_e2e_held2_0" }];
+    const submit = await api(baseUrl, "POST", "/internal/v1/matches", {
+      token: internalToken,
+      body: held,
+    });
+    expect(submit.status).toBe(200);
+
+    const reject = await api(baseUrl, "POST", "/internal/v1/rewards/rw_e2e_held2_0/review", {
+      token: internalToken,
+      body: { decision: "reject", reason: "anti_cheat_rejected" },
+    });
+    expect(reject.status).toBe(200);
+    expect(reject.body).toEqual({
+      rewardId: "rw_e2e_held2_0",
+      state: "failed",
+      error: "anti_cheat_rejected",
+    });
+
+    // Terminal: a claim retry must NOT revive it (normal failed rewards retry).
+    const claim = await api(baseUrl, "POST", "/v1/rewards/rw_e2e_held2_0/claim", {
+      token: playerToken,
+    });
+    expect(claim.status).toBe(409);
+    expect(claim.body.code).toBe("reward_rejected");
+
+    const status = await api(baseUrl, "GET", "/v1/rewards/rw_e2e_held2_0", {
+      token: playerToken,
+    });
+    expect(status.body.state).toBe("failed");
+    expect(status.body.error).toBe("anti_cheat_rejected");
+  });
+});
+
+describe("token metadata (tokenURI)", () => {
+  it("serves ERC-721 metadata where the on-chain tokenURI points", async () => {
+    const uri = await publicClient.readContract({
+      address: contracts.weaponSkin as `0x${string}`,
+      abi: weaponSkinAbi,
+      functionName: "tokenURI",
+      args: [BigInt(confirmedTokenId)],
+    });
+    expect(uri).toBe(`${baseUrl}/metadata/${confirmedTokenId}`);
+
+    const assets = await api(baseUrl, "GET", "/v1/assets", { token: playerToken });
+    const item = assets.body.items.find((i: any) => i.tokenId === confirmedTokenId);
+
+    const res = await fetch(uri);
+    expect(res.status).toBe(200);
+    const metadata = (await res.json()) as any;
+    expect(metadata.name).toBe(`${item.name} #${item.serial}`);
+    expect(typeof metadata.description).toBe("string");
+    expect(typeof metadata.image).toBe("string");
+    const serial = metadata.attributes.find((a: any) => a.trait_type === "Serial");
+    expect(serial.value).toBe(item.serial);
+    const contentHash = metadata.attributes.find((a: any) => a.trait_type === "Content Hash");
+    expect(contentHash.value).toBe(item.contentHash);
+  });
+
+  it("404s nonexistent and malformed token ids", async () => {
+    const missing = await api(baseUrl, "GET", "/metadata/999999999999999");
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe("token_not_found");
+
+    const malformed = await api(baseUrl, "GET", "/metadata/not-a-token");
+    expect(malformed.status).toBe(404);
   });
 });
 

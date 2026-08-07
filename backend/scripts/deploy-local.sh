@@ -13,6 +13,12 @@ RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 PRIVATE_KEY="${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 # anvil account #1 — voucher signer address (pull path, unused by the demo backend)
 REWARD_SIGNER_ADDRESS="${REWARD_SIGNER_ADDRESS:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}"
+# Where WeaponSkin.tokenURI should point (this backend's metadata endpoint).
+# Trailing slash required: tokenURI = base + decimal tokenId.
+METADATA_BASE_URL="${METADATA_BASE_URL:-http://127.0.0.1:8787/metadata/}"
+
+# forge/cast: PATH first, ~/.foundry/bin fallback.
+command -v forge >/dev/null 2>&1 || PATH="$HOME/.foundry/bin:$PATH"
 
 BACKEND_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONTRACTS_DIR="$BACKEND_DIR/../contracts"
@@ -40,6 +46,10 @@ echo "==> seeding demo skins"
 (cd "$CONTRACTS_DIR" && \
   PRIVATE_KEY="$PRIVATE_KEY" REGISTRY_ADDRESS="$REGISTRY" DISTRIBUTOR_ADDRESS="$DISTRIBUTOR" \
   forge script script/SeedSkins.s.sol:SeedSkins --rpc-url "$RPC_URL" --broadcast >/dev/null)
+
+echo "==> pointing WeaponSkin.tokenURI at $METADATA_BASE_URL"
+cast send "$SKIN" "setBaseURI(string)" "$METADATA_BASE_URL" \
+  --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" >/dev/null
 
 CHAIN_ID=$(printf '%d' "$(curl -s "$RPC_URL" -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' | grep -oE '"result":"[^"]+"' | cut -d'"' -f4)")

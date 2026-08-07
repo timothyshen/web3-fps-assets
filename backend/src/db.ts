@@ -50,6 +50,10 @@ export interface RewardRow {
   request_id: string;
   token_id: string | null;
   tx_hash: string | null;
+  /** Block the mint landed in (known from our own receipt); finality fallback. */
+  minted_block: number | null;
+  /** 1 = review-rejected: state "failed" is terminal, claim retries refused. */
+  terminal: number;
   error: string | null;
   expires_at: number;
   created_at: number;
@@ -117,6 +121,8 @@ CREATE TABLE IF NOT EXISTS rewards (
   request_id  TEXT NOT NULL,
   token_id    TEXT,
   tx_hash     TEXT,
+  minted_block INTEGER,
+  terminal    INTEGER NOT NULL DEFAULT 0,
   error       TEXT,
   expires_at  INTEGER NOT NULL,
   created_at  INTEGER NOT NULL,
@@ -163,6 +169,15 @@ export function openDb(path: string) {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+
+  // Lightweight migration for databases created before these columns existed.
+  for (const column of ["minted_block INTEGER", "terminal INTEGER NOT NULL DEFAULT 0"]) {
+    try {
+      db.exec(`ALTER TABLE rewards ADD COLUMN ${column}`);
+    } catch {
+      // column already present
+    }
+  }
 
   const now = () => Date.now();
 
@@ -228,7 +243,12 @@ export function openDb(path: string) {
     },
 
     // ---- rewards -------------------------------------------------------
-    insertRewardIfAbsent(row: Omit<RewardRow, "token_id" | "tx_hash" | "error" | "updated_at">) {
+    insertRewardIfAbsent(
+      row: Omit<
+        RewardRow,
+        "token_id" | "tx_hash" | "minted_block" | "terminal" | "error" | "updated_at"
+      >,
+    ) {
       db.prepare(
         `INSERT INTO rewards
            (reward_id, match_id, player_id, slot, skin_def_id, wear, season_id, rarity, name,
@@ -242,6 +262,13 @@ export function openDb(path: string) {
 
     getReward(rewardId: string): RewardRow | undefined {
       return db.prepare(`SELECT * FROM rewards WHERE reward_id = ?`).get(rewardId) as
+        | RewardRow
+        | undefined;
+    },
+
+    /** Finality fallback: the mint block of a token we minted ourselves. */
+    getRewardByTokenId(tokenId: string): RewardRow | undefined {
+      return db.prepare(`SELECT * FROM rewards WHERE token_id = ?`).get(tokenId) as
         | RewardRow
         | undefined;
     },
@@ -264,9 +291,31 @@ export function openDb(path: string) {
       const result = db
         .prepare(
           `UPDATE rewards SET state = 'processing', error = NULL, updated_at = ?
-           WHERE reward_id = ? AND state IN ('claimable', 'failed')`,
+           WHERE reward_id = ? AND state IN ('claimable', 'failed') AND terminal = 0`,
         )
         .run(now(), rewardId);
+      return result.changes === 1;
+    },
+
+    /** Anti-cheat review gate: held → claimable. Returns false if not held. */
+    releaseHeldReward(rewardId: string): boolean {
+      const result = db
+        .prepare(
+          `UPDATE rewards SET state = 'claimable', error = NULL, updated_at = ?
+           WHERE reward_id = ? AND state = 'held'`,
+        )
+        .run(now(), rewardId);
+      return result.changes === 1;
+    },
+
+    /** Anti-cheat review gate: held → terminal failed with a reason code. */
+    rejectHeldReward(rewardId: string, reason: string): boolean {
+      const result = db
+        .prepare(
+          `UPDATE rewards SET state = 'failed', terminal = 1, error = ?, updated_at = ?
+           WHERE reward_id = ? AND state = 'held'`,
+        )
+        .run(reason.slice(0, 100), now(), rewardId);
       return result.changes === 1;
     },
 
@@ -277,12 +326,17 @@ export function openDb(path: string) {
       ).run(txHash, now(), rewardId);
     },
 
-    setRewardConfirmed(rewardId: string, tokenId: string, txHash: string | null) {
+    setRewardConfirmed(
+      rewardId: string,
+      tokenId: string,
+      txHash: string | null,
+      mintedBlock: number | null,
+    ) {
       db.prepare(
         `UPDATE rewards SET state = 'confirmed', token_id = ?, tx_hash = COALESCE(?, tx_hash),
-           error = NULL, updated_at = ?
+           minted_block = COALESCE(?, minted_block), error = NULL, updated_at = ?
          WHERE reward_id = ?`,
-      ).run(tokenId, txHash, now(), rewardId);
+      ).run(tokenId, txHash, mintedBlock, now(), rewardId);
     },
 
     setRewardFailed(rewardId: string, error: string) {

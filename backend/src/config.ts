@@ -56,6 +56,13 @@ const envSchema = z.object({
   MARKETPLACE_URL: z.string().optional(),
 
   // ---- behavior knobs ----
+  /**
+   * Finality window (docs/security.md T6): a token acquired fewer than this
+   * many blocks ago reports SkinItem.state "pending" and cannot be equipped.
+   * 0 = optimistic (anvil default). Monad testnet: 2 is plenty — MonadBFT
+   * gives ~1s finality (about two 500ms blocks).
+   */
+  CONFIRMATION_BLOCKS: z.coerce.number().int().nonnegative().default(0),
   ASSETS_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(20),
   BIND_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   REWARD_EXPIRY_DAYS: z.coerce.number().int().positive().default(30),
@@ -168,6 +175,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     webOrigin,
     allowedSiweDomains,
     marketplaceUrl: e.MARKETPLACE_URL ?? `${webOrigin}/market`,
+    confirmationBlocks: e.CONFIRMATION_BLOCKS,
     assetsCacheTtlSeconds: e.ASSETS_CACHE_TTL_SECONDS,
     bindSessionTtlSeconds: e.BIND_SESSION_TTL_SECONDS,
     rewardExpiryDays: e.REWARD_EXPIRY_DAYS,

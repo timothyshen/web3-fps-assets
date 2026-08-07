@@ -86,6 +86,19 @@ export function registerEntitlementRoutes(app: FastifyInstance, ctx: AppContext)
           resolvedSkins.push(defaultSlot(slot));
           continue;
         }
+        // Finality window (docs/security.md T6): tokens still inside the
+        // CONFIRMATION_BLOCKS window are not equippable — the slot falls
+        // back to the default skin, the match proceeds.
+        const finality = await ctx.reads.tokenFinalityState(
+          owner,
+          BigInt(tokenId),
+          db.getRewardByTokenId(tokenId)?.minted_block,
+        );
+        if (finality === "pending") {
+          rejectedTokenIds.push({ tokenId, reason: "not_confirmed" });
+          resolvedSkins.push(defaultSlot(slot));
+          continue;
+        }
         const data = await ctx.reads.skinDataOf(BigInt(tokenId));
         const def = await ctx.reads.getSkinDef(data.skinDefId);
         resolvedSkins.push({

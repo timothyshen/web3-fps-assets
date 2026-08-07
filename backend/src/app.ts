@@ -10,6 +10,7 @@ import { registerRewardRoutes } from "./routes/rewards.js";
 import { registerMatchRoutes } from "./routes/matches.js";
 import { registerEntitlementRoutes } from "./routes/entitlement.js";
 import { registerTournamentRoutes } from "./routes/tournaments.js";
+import { registerMetadataRoutes } from "./routes/metadata.js";
 
 /**
  * Framework choice: Fastify over Express — first-class async handlers with
@@ -82,6 +83,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   registerMatchRoutes(app, ctx);
   registerEntitlementRoutes(app, ctx);
   registerTournamentRoutes(app, ctx);
+  registerMetadataRoutes(app, ctx);
 
   return app;
 }

@@ -37,6 +37,20 @@ export interface SkinItemDto {
   state: "confirmed" | "pending";
 }
 
+/**
+ * Closet cache entry: the API item plus the block the wallet acquired the
+ * token in (latest Transfer(to=wallet)), so `state` can be re-derived
+ * against the current head on cache hits without re-reading the closet.
+ */
+export interface ClosetEntry {
+  item: SkinItemDto;
+  acquisitionBlock?: bigint;
+}
+
+const TRANSFER_EVENT = weaponSkinAbi.find(
+  (item) => item.type === "event" && item.name === "Transfer",
+) as Extract<(typeof weaponSkinAbi)[number], { type: "event" }>;
+
 export class ChainReads {
   /** Skin definitions barely change — cache for a minute. */
   private defCache = new TtlCache<SkinDef>(60_000);
@@ -93,13 +107,27 @@ export class ChainReads {
     });
   }
 
+  /** Un-memoized chain head (per-call cacheTime 0 — finality checks need it fresh). */
+  async currentBlockNumber(): Promise<bigint> {
+    return this.ctx.publicClient.getBlockNumber({ cacheTime: 0 });
+  }
+
   /**
    * Full closet read, the docs/integration.md recipe:
    * tokensOfOwner → skinData per token → registry.getSkin per unique defId.
    * Uses multicall when the chain has Multicall3 configured, parallel
    * eth_call otherwise (plain anvil has no Multicall3).
+   *
+   * With CONFIRMATION_BLOCKS > 0 each entry also resolves its acquisition
+   * block (latest Transfer(to=wallet), one getLogs for the whole wallet)
+   * and derives state per docs/security.md T6. If the log query fails the
+   * item keeps the optimistic `confirmed` (documented degradation), unless
+   * `mintedBlockOf` (our own mint receipts in the DB) knows the block.
    */
-  async readCloset(wallet: `0x${string}`): Promise<SkinItemDto[]> {
+  async readCloset(
+    wallet: `0x${string}`,
+    mintedBlockOf?: (tokenId: string) => number | null | undefined,
+  ): Promise<ClosetEntry[]> {
     const tokenIds = (await this.ctx.publicClient.readContract({
       address: this.config.contracts.weaponSkin,
       abi: weaponSkinAbi,
@@ -119,13 +147,113 @@ export class ChainReads {
       }),
     );
 
+    let acquisitionBlocks = new Map<string, bigint>();
+    let currentBlock: bigint | undefined;
+    if (this.config.confirmationBlocks > 0) {
+      try {
+        [acquisitionBlocks, currentBlock] = await Promise.all([
+          this.acquisitionBlocksOf(wallet),
+          this.currentBlockNumber(),
+        ]);
+      } catch {
+        // Optimistic fallback (see doc comment); the DB fallback below may
+        // still supply mint blocks for tokens we minted ourselves.
+        acquisitionBlocks = new Map();
+        currentBlock = undefined;
+      }
+    }
+
     return tokenIds.map((tokenId, i) => {
       const data = skinDatas[i];
       if (!data) throw new Error("skinData batch length mismatch");
       const def = defs.get(data.skinDefId);
       if (!def) throw new Error(`missing skin definition ${data.skinDefId}`);
-      return this.toSkinItem(tokenId, data, def);
+
+      const decimalId = tokenId.toString(10);
+      let acquisitionBlock = acquisitionBlocks.get(decimalId);
+      if (acquisitionBlock === undefined) {
+        const fallback = mintedBlockOf?.(decimalId);
+        if (fallback !== null && fallback !== undefined) acquisitionBlock = BigInt(fallback);
+      }
+      const state = this.deriveFinalityState(acquisitionBlock, currentBlock);
+      return { item: this.toSkinItem(tokenId, data, def, state), acquisitionBlock };
     });
+  }
+
+  /** Latest Transfer(to=wallet) block per tokenId (decimal-string keyed). */
+  private async acquisitionBlocksOf(wallet: `0x${string}`): Promise<Map<string, bigint>> {
+    const logs = await this.ctx.publicClient.getLogs({
+      address: this.config.contracts.weaponSkin,
+      event: TRANSFER_EVENT,
+      args: { to: wallet },
+      fromBlock: 0n,
+    });
+    const blocks = new Map<string, bigint>();
+    for (const log of logs) {
+      const args = log.args as { tokenId?: bigint };
+      if (args.tokenId === undefined || log.blockNumber === null) continue;
+      const key = args.tokenId.toString(10);
+      const existing = blocks.get(key);
+      if (existing === undefined || log.blockNumber > existing) {
+        blocks.set(key, log.blockNumber);
+      }
+    }
+    return blocks;
+  }
+
+  /**
+   * Finality state of one token held by `wallet` (loadout / entitlement).
+   * Optimistic on resolution failure — ownership has already been verified
+   * by the time this runs, and blocking play on a log-RPC hiccup would
+   * violate the degradation matrix.
+   */
+  async tokenFinalityState(
+    wallet: `0x${string}`,
+    tokenId: bigint,
+    mintedBlockFallback?: number | null,
+  ): Promise<"confirmed" | "pending"> {
+    if (this.config.confirmationBlocks === 0) return "confirmed";
+    try {
+      const [logs, currentBlock] = await Promise.all([
+        this.ctx.publicClient.getLogs({
+          address: this.config.contracts.weaponSkin,
+          event: TRANSFER_EVENT,
+          args: { to: wallet, tokenId },
+          fromBlock: 0n,
+        }),
+        this.currentBlockNumber(),
+      ]);
+      let acquisitionBlock: bigint | undefined;
+      for (const log of logs) {
+        if (
+          log.blockNumber !== null &&
+          (acquisitionBlock === undefined || log.blockNumber > acquisitionBlock)
+        ) {
+          acquisitionBlock = log.blockNumber;
+        }
+      }
+      if (acquisitionBlock === undefined && mintedBlockFallback != null) {
+        acquisitionBlock = BigInt(mintedBlockFallback);
+      }
+      return this.deriveFinalityState(acquisitionBlock, currentBlock);
+    } catch {
+      return "confirmed"; // optimistic degradation
+    }
+  }
+
+  /**
+   * confirmed iff (head - acquisitionBlock) >= CONFIRMATION_BLOCKS.
+   * Unknown acquisition block → optimistic confirmed (documented fallback).
+   */
+  deriveFinalityState(
+    acquisitionBlock: bigint | undefined,
+    currentBlock: bigint | undefined,
+  ): "confirmed" | "pending" {
+    if (this.config.confirmationBlocks === 0) return "confirmed";
+    if (acquisitionBlock === undefined || currentBlock === undefined) return "confirmed";
+    return currentBlock - acquisitionBlock >= BigInt(this.config.confirmationBlocks)
+      ? "confirmed"
+      : "pending";
   }
 
   private async batchSkinData(tokenIds: readonly bigint[]): Promise<SkinDataOnChain[]> {
@@ -145,7 +273,12 @@ export class ChainReads {
     return Promise.all(tokenIds.map((tokenId) => this.skinDataOf(tokenId)));
   }
 
-  toSkinItem(tokenId: bigint, data: SkinDataOnChain, def: SkinDef): SkinItemDto {
+  toSkinItem(
+    tokenId: bigint,
+    data: SkinDataOnChain,
+    def: SkinDef,
+    state: "confirmed" | "pending",
+  ): SkinItemDto {
     return {
       tokenId: tokenId.toString(10), // decimal string, never a JS number
       skinDefId: data.skinDefId,
@@ -158,10 +291,9 @@ export class ChainReads {
       previewKey: previewKey(data.skinDefId),
       bundleUri: `${this.config.bundleBaseUrl}/${data.skinDefId}.bundle`,
       contentHash: def.contentHash,
-      // Monad's MonadBFT finality is fast; the demo reads settled state and
-      // reports it as confirmed. A finality-窗口 policy would go here
-      // (docs/security.md T6).
-      state: "confirmed",
+      // Finality window per docs/security.md T6 (CONFIRMATION_BLOCKS env);
+      // 0 keeps the optimistic behavior for instant-finality local chains.
+      state,
     };
   }
 }

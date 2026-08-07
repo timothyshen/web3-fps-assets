@@ -74,6 +74,7 @@ Unity-facing, from `api/openapi.yaml` (Bearer **player JWT** unless noted):
 | `GET /v1/rewards/{rewardId}` | state machine `claimable→processing→pending_chain→confirmed/failed`, `tokenId` on confirmed |
 | `GET /v1/matches/{matchId}` | public; `canonicalJson` + `resultHash` + attestation state |
 | `GET /v1/tournaments` (+`/{id}`, `/{id}/intents/{action}`) | read from `TournamentEscrow` (`tournamentCount` enumeration); intents validate feasibility then return `actionUrl = {WEB_ORIGIN}/tournaments/{id}/{action}` |
+| `GET /metadata/{tokenId}` | public ERC-721 metadata, where `WeaponSkin.tokenURI` points (see below); 404 for nonexistent/burned tokens; 60s cache; permissive CORS |
 
 Web-facing (no game JWT — the browser only has the sessionId; contract from
 `web/README.md` "TO ALIGN WITH BACKEND", implemented exactly):
@@ -88,7 +89,8 @@ Server-to-server (Bearer **`INTERNAL_SERVICE_TOKEN`**, never the player JWT):
 | Endpoint | Notes |
 |---|---|
 | `POST /internal/v1/matches` | canonicalizes (RFC 8785) + `resultHash = keccak256(bytes)`; idempotent by matchId (identical re-push → 200, different content → 409 `match_conflict`); creates rewards from `rewardSlots` (`passed`→claimable, `held`→held, `rejected`→none); queues attestation — attestation failure never fails this endpoint |
-| `POST /internal/v1/entitlement-check` | per-slot resolution (granted vs default fallback + rejection reason), persisted `snapshotId`; dependency failure → `allowed: true, degraded: true` default-skin snapshot |
+| `POST /internal/v1/entitlement-check` | per-slot resolution (granted vs default fallback + rejection reason incl. `not_confirmed`), persisted `snapshotId`; dependency failure → `allowed: true, degraded: true` default-skin snapshot |
+| `POST /internal/v1/rewards/{rewardId}/review` | **the anti-cheat review seam** (internal-only, never client-reachable). Body `{decision: "release"\|"reject", reason?}`. `release`: held → claimable. `reject`: held → **terminal** failed with a `lowercase_snake_case` reason code surfaced via `RewardStatus.error` (claim retries answer 409 `reward_rejected`; ordinary mint-failed rewards stay retryable). Same-outcome repeats are idempotent 200s; anything else 409 `wrong_state`. Exists because mints are irreversible — risk control must happen before the mint (docs/security.md T4) |
 
 Demo-only extension (NOT in openapi.yaml, deliberately):
 
@@ -116,6 +118,30 @@ Demo-only extension (NOT in openapi.yaml, deliberately):
 - **Hashing** — `src/jcs.ts` implements RFC 8785 locally and is validated
   byte-for-byte against `fixtures/` (the fixtures README requires exactly
   this).
+- **Finality window** (docs/security.md T6) — `CONFIRMATION_BLOCKS` (default
+  0 = optimistic, right for anvil; **2 suggested for Monad testnet**, whose
+  MonadBFT finalizes in about a second). A token is `confirmed` iff
+  `head − acquisitionBlock ≥ CONFIRMATION_BLOCKS`, where the acquisition
+  block is the latest `Transfer(to=wallet)` (one `getLogs` per closet read;
+  our own mints also persist their receipt block as a fallback). Inside the
+  window `SkinItem.state` is `"pending"` and the token is NOT equippable:
+  `PUT /v1/loadout` answers 403 `not_confirmed` and entitlement checks
+  resolve the slot to the default skin with reason `not_confirmed`
+  (openapi AST-004). Closet cache entries keep the acquisition block, so
+  `state` is re-derived against the live head on cache hits — pending flips
+  to confirmed without waiting out the TTL. Note the reward state machine is
+  unchanged: a claim is `confirmed` when its tx lands; with a window > 0 the
+  ITEM stays `pending` a little longer, and `SkinItem.state` is what gates
+  equipping. Degradation: if log queries fail, state falls back to the
+  optimistic pre-window behavior (never blocks play on a log-RPC hiccup).
+- **Metadata / tokenURI** — `WeaponSkin.tokenURI = baseTokenURI + decimal
+  tokenId`; `scripts/deploy-local.sh` calls `setBaseURI` (URI_ADMIN_ROLE)
+  pointing it at `{backend}/metadata/`, so anvil-minted tokens resolve
+  end-to-end. `GET /metadata/{tokenId}` serves standard ERC-721 JSON: name
+  `"<catalog name> #<serial>"`, description, placeholder `image`
+  (`{BUNDLE_BASE_URL}/previews/{skinDefId}.png` — no art pipeline exists
+  yet), and attributes (skin, rarity, wear 0..1, serial, max supply,
+  season, contentHash) read from `skinData` + the registry.
 - **Degradation** (`docs/integration.md` 降级矩阵, live-verified):
   RPC down → `/v1/assets` serves the stale cache with an honest, growing
   `stalenessSeconds` (503 `chain_unavailable` only when nothing was ever
@@ -138,11 +164,15 @@ known test keys). Highlights: `RPC_URL`/`CHAIN_ID`/`CHAIN_NAME`,
 `OPERATOR_ROLE` + `ATTESTER_ROLE`; the Deploy script leaves both with the
 deployer when `ADMIN_ADDRESS` is unset), `JWT_SECRET`,
 `INTERNAL_SERVICE_TOKEN`, `WEB_ORIGIN` (bind + tournament action URLs,
-SIWE domain whitelist, CORS), cache/TTL knobs, `DB_PATH`.
+SIWE domain whitelist, CORS), `CONFIRMATION_BLOCKS` (finality window),
+cache/TTL knobs, `DB_PATH`. `scripts/deploy-local.sh` also honors
+`METADATA_BASE_URL` (default `http://127.0.0.1:8787/metadata/`, trailing
+slash required) for the on-chain base URI.
 
 For Monad testnet: set `RPC_URL`/`CHAIN_ID=10143`/`CHAIN_NAME`/`NATIVE_SYMBOL=MON`,
 `MULTICALL3_ADDRESS=0xcA11bde05977b3631167028862bE2a173976CA11`, the deployed
-`ADDR_*`, and a funded operator key.
+`ADDR_*`, a funded operator key, `CONFIRMATION_BLOCKS=2`, and re-point the
+base URI at the backend's public host.
 
 ## Production TODOs (hackathon shortcuts, on purpose)
 
@@ -154,14 +184,19 @@ For Monad testnet: set `RPC_URL`/`CHAIN_ID=10143`/`CHAIN_NAME`/`NATIVE_SYMBOL=MO
 - **Durable queue** — attestation/mint workers move from the in-process
   SQLite poller to a durable queue with visibility timeouts; SQLite →
   Postgres when more than one instance runs.
-- **Finality policy** — closet items are reported `confirmed` from settled
-  reads; wire a real confirmation window per Monad finality and start using
-  `state: "pending"` (docs/security.md T6).
-- **Anti-cheat gate** — `held → claimable` requires a review tool/flow;
-  mints are irreversible so risk control must stay pre-mint.
+- **Finality policy** — implemented as a block-count window
+  (`CONFIRMATION_BLOCKS`); production should key it to Monad's actual
+  finalized-block signal rather than a fixed count, and index Transfer
+  events instead of ad-hoc `getLogs` once volume grows.
+- **Anti-cheat gate** — the review seam exists
+  (`/internal/v1/rewards/{id}/review`); production needs the actual review
+  tooling/automation in front of it. Mints are irreversible so risk control
+  must stay pre-mint.
 - **Re-bind flow** — one wallet per player is enforced; changing wallets
   (openapi 409 换绑需重新认证) needs a re-auth flow.
 - **ERC-1271 smart wallets** — verified only when the RPC is up; embedded
   smart-contract wallets should get a first-class path.
-- Metadata/`tokenURI` service for skin names + preview assets (replaces
-  `src/catalog.ts`).
+- **Metadata hosting** — `/metadata/{tokenId}` exists and `tokenURI` points
+  at it locally; production re-points the base URI at a public host, swaps
+  the placeholder `image` scheme for the real art pipeline, and replaces
+  the `src/catalog.ts` name mirror with the content pipeline's data.

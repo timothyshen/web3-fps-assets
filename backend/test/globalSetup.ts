@@ -129,6 +129,23 @@ export default async function globalSetup(project: TestProject): Promise<() => P
       },
     );
 
+    // 3b. point WeaponSkin.tokenURI at the backend's metadata endpoint
+    // (setBaseURI, URI_ADMIN_ROLE is held by the deployer).
+    await execFileAsync(
+      foundryBin("cast"),
+      [
+        "send",
+        contracts.weaponSkin,
+        "setBaseURI(string)",
+        `${BASE_URL}/metadata/`,
+        "--private-key",
+        KEY0,
+        "--rpc-url",
+        RPC_URL,
+      ],
+      { maxBuffer: 4 * 1024 * 1024 },
+    );
+
     // 4. backend --------------------------------------------------------
     backend = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
       cwd: backendDir,
