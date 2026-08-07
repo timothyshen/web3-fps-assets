@@ -1,0 +1,11 @@
+{
+  "chainId": 10143,
+  "contracts": {
+    "gameAssetRegistry": "",
+    "weaponSkin": "",
+    "rewardDistributor": "",
+    "skinMarket": "",
+    "matchAttestation": "",
+    "tournamentEscrow": ""
+  }
+}
