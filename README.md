@@ -12,8 +12,10 @@ Hackathon 项目。本仓库只负责 Web3 侧；Unity 客户端与权威游戏�
 
 ## 状态
 
-合约与抽象层已完成，`forge test` 130 个测试全绿（含 7 个 invariant）。
-资产后端与 Web 应用待建，见 [docs/roadmap.md](docs/roadmap.md)。
+合约与抽象层完成，`forge test` 130 个测试全绿（含 7 个 invariant）。
+资产后端（`backend/`，55 个测试、其中 41 项对真实 anvil 全链路）与
+Web 应用（`web/`，连接 / SIWE 绑定 / 衣柜 / 市场 / 赛事）已建成。
+剩余：测试网实跑与 demo 串联，见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 目录
 
@@ -30,6 +32,9 @@ contracts/              Foundry 工程
   test/                 125 个测试，含 7 个 invariant
   script/               部署与灌数据
 api/openapi.yaml        资产后端的 REST 契约（Web3 侧实现）
+backend/                资产后端（Node/TS）：openapi 全端点、SIWE 验签、
+                        幂等直铸、存证队列、终局性窗口、tokenURI 元数据
+web/                    Web 应用：钱包连接、SIWE 绑定页、衣柜、市场、赛事
 fixtures/               结果包哈希的跨语言参考向量
 packages/unity-sdk/     给 Unity 的抽象层（拷 Runtime/ 进工程即可）
 docs/

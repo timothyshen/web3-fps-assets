@@ -13,58 +13,58 @@
 | 部署 + 灌数据脚本 | 完成，未在测试网实跑 |
 | `IGameAssetGateway` + Mock + Http 实现 | 完成 |
 | `api/openapi.yaml` 后端契约 | 完成 |
+| `backend/` 资产后端：openapi 全端点 + SIWE 验签 + `mintDirect` 幂等直铸 + 存证重试队列 + T6 终局性窗口 + held 审核门 + `tokenURI` 元数据 | 完成，55 测试（41 项对真实 anvil 端到端：真签名绑定、领奖到链上确认、重复领奖不双铸、存证 `verify()`） |
+| `web/` Web 应用：钱包连接（注入式 + 可选 Privy）、SIWE 绑定页、衣柜、市场、赛事列表/详情/操作落地页 | 完成，tsc 严格 + 构建零错误 |
+| `backend/scripts/deploy-local.sh` 本地一键部署 + 灌数据 + setBaseURI | 完成，anvil 实测 |
 
-`forge test` 130 个测试全绿，含 7 个 invariant。
+`forge test` 130 个测试全绿，含 7 个 invariant。原第 2、3 步（后端、Web 应用）
+已完成并超出原清单（赛事页、终局性窗口、审核门、元数据服务）；验收标准
+"Unity 换 `HttpGameAssetGateway` 其余代码不改"由 Unity 侧 PR 的契约镜像保障，
+待实机联调最终确认。
 
 ## 下一步（按依赖顺序）
 
 ### 1. 测试网实跑（半天）
 
-脚本写好了但没在真链上跑过，先把这个闭环打通：
+后端、前端、部署脚本均已就绪，只差密钥与水龙头：
 
 - [ ] 拿 Monad 测试网 MON（水龙头）
-- [ ] `Deploy.s.sol` 实际部署 + Etherscan 验证
-- [ ] `SeedSkins.s.sol` 灌 5 款皮肤
+- [ ] 填 `.env`（PRIVATE_KEY / REWARD_SIGNER_ADDRESS），`Deploy.s.sol` 实际部署 + Sourcify 验证
+- [ ] `SeedSkins.s.sol` 灌 5 款皮肤，`setBaseURI` 指向公网后端
+- [ ] `backend/.env` 与 `web` 地址配置换成测试网（`CHAIN_ID=10143`、`CONFIRMATION_BLOCKS=2`）
 - [ ] `cast` 手动走一遍 mintDirect → tokensOfOwner → list → buy
 
 **验收**：在区块浏览器上能看到一件皮肤从铸造到易手的完整轨迹。
 
-### 2. 资产后端（1–2 天）
+### 2. Demo 串联（半天，依赖游戏侧）
 
-四个端点，一个 Node/TS 服务，不拆微服务：
-
-- [ ] `GET /v1/assets` —— 读 `tokensOfOwner` + 缓存
-- [ ] `POST /v1/wallet/bind` + 轮询 —— SIWE 验签
-- [ ] `POST /v1/rewards/{id}/claim` —— 调 `mintDirect`
-- [ ] `POST /internal/v1/entitlement-check`
-- [ ] `tokenURI` 指向的元数据 API
-
-**验收**：Unity 侧把 `MockGameAssetGateway` 换成 `HttpGameAssetGateway`，
-其余代码一行不改，功能一致。这是抽象层是否合格的唯一标准。
-
-### 3. Web 应用（1–2 天，你的主场）
-
-- [ ] 钱包连接（wagmi + Monad 链配置；嵌入式钱包见 integration.md）
-- [ ] 绑定页面（SIWE 签名）
-- [ ] 衣柜展示（读 `tokensOfOwner`）
-- [ ] 挂单 / 购买（`SkinMarket`）
-
-### 4. Demo 串联（半天）
-
-- [ ] Unity 大厅接 `HttpGameAssetGateway`
-- [ ] 打一局 → 后端发奖 → 大厅出现新皮肤 → Web 上挂单 → 另一个账号买走
+- [ ] Unity 大厅接 `HttpGameAssetGateway`（登录先用 demo `/v1/auth/login` 换 JWT，`SetAccessToken` 注入）
+- [ ] 打一局 → 游戏服务器推 `/internal/v1/matches` → 后端发奖 → 大厅出现新皮肤 → Web 上挂单 → 另一个账号买走
 - [ ] 演示脚本与话术
+
+前置：游戏侧 v1.8.0 PR（契约镜像 + 61 个 EditMode 用例）需在 Unity 环境验证合入。
+
+### 3. 契约整理（小，demo 后）
+
+- [ ] `ChainConfig`：unity-sdk 平铺 `nativeSymbol` vs openapi 嵌套 `nativeCurrency{}`，二选一（后端暂发两者超集兼容）
+- [ ] openapi 引用的 fixtures 文件名笔误（实际为 `match-result-v1.canonical/expected.json`）
+- [ ] 把实际采用的附加状态码（400 schema 校验、404 未知赛事 intent、503 `chain_unavailable`）与 `rewardSlots[].slot` 的 uint8 约束补进 openapi
+
+### 4. 产品确认（不阻塞演示）
+
+- [ ] 反作弊 `rejected` 的对局**完全不产生奖励**（铸造不可逆，风控置于铸前）——需确认
+- [ ] 奖励 → 皮肤款式的指派规则（当前为 5 款种子皮肤的确定性 demo 策略）
 
 ## 与游戏侧的依赖
 
 Web3 侧无法独立完成的，需要尽早对齐：
 
-| 依赖 | 何时需要 |
+| 依赖 | 状态 |
 |------|---------|
-| **玩家账号体系（playerId）** | **最早** —— 奖励绑定在 playerId 上，影响账号系统设计 |
-| 对局结果推送接口 | 第 2 步 |
-| 皮肤 AssetBundle 打包 + 哈希产出 | 第 4 步（demo 可先用占位资源） |
-| 大厅 UI（衣柜、领奖、绑钱包） | 第 4 步 |
+| **玩家账号体系（playerId）** | demo 解法已就位（`/v1/auth/login` 发 JWT，明确标注生产替换）；真实账号体系仍待游戏侧对齐 |
+| 对局结果推送接口 | 后端已实现 `/internal/v1/matches`（哈希校验 + 幂等 + 409 冲突），待游戏服务器接入 |
+| 皮肤 AssetBundle 打包 + 哈希产出 | 仍待游戏侧（demo 可先用占位资源；元数据图片同为占位方案） |
+| 大厅 UI（衣柜、领奖、绑钱包） | 游戏侧包已有功能型大厅并镜像本仓库契约（v1.8.0 PR），待实机验证 |
 
 ## 已决定的事
 
@@ -79,9 +79,8 @@ Web3 侧无法独立完成的，需要尽早对齐：
 
 ## 还需要讨论的
 
-1. **奖励用 push 还是 pull？** 当前两条路径都实现了。push（后端直铸）demo 体验
-   最顺，玩家零操作；pull（voucher）省 gas 且未领取的不上链。建议 demo 用 push，
-   真实运营时高价值奖励切 pull。
+1. **奖励用 push 还是 pull？** 合约两条路径都实现了；demo 已按 push 落地
+   （后端直铸，玩家零操作）。真实运营时高价值奖励切 pull（voucher）仍是开放项。
 2. **要不要接 gas 代付？** **建议不接。** push 模式下玩家本来就不付 gas，
    只有 Web 端挂单/购买需要，而 Monad 的 gas 成本本身很低 —— 给测试地址打点
    测试网 MON 就够演示了。省下的时间投到别处更划算。
