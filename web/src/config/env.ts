@@ -34,6 +34,16 @@ export const env = {
   /** Optional Multicall3 address override (e.g. for an anvil fork). */
   multicall3Address: import.meta.env.VITE_MULTICALL3_ADDRESS?.trim() || undefined,
 
+  /**
+   * Optional TournamentEscrow deploy block (decimal). Bounds the eth_getLogs
+   * scan for winners / cancel reason on tournament detail pages; without it
+   * the scan uses fromBlock 'earliest', which some public RPCs reject.
+   */
+  escrowDeployBlock: (() => {
+    const raw = import.meta.env.VITE_ESCROW_DEPLOY_BLOCK?.trim()
+    return raw && /^[0-9]+$/.test(raw) ? raw : undefined
+  })(),
+
   /** Raw (unvalidated) contract addresses; validated in src/config/contracts.ts. */
   rawAddresses: {
     gameAssetRegistry: import.meta.env.VITE_ADDR_GAME_ASSET_REGISTRY,

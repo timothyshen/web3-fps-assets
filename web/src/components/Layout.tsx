@@ -54,6 +54,7 @@ export function Layout() {
             </NavLink>
             <NavLink to="/closet">Closet</NavLink>
             <NavLink to="/market">Market</NavLink>
+            <NavLink to="/tournaments">Tournaments</NavLink>
           </nav>
           <div className="header-right">
             {env.mockApi && (

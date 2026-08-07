@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AddressConfigCard } from '../components/AddressConfigCard'
 import { ConnectPanel } from '../components/ConnectPanel'
 import { activeChain } from '../config/chain'
@@ -66,6 +66,14 @@ export function HomePage() {
       <section className="card">
         <h2>Links</h2>
         <ul className="link-list">
+          <li>
+            <Link to="/tournaments">Tournaments</Link>
+            <span className="muted">
+              {' '}
+              — prize-pool escrow: entry fees locked on-chain, the organizer cannot touch the
+              principal
+            </span>
+          </li>
           {explorer && (
             <li>
               <a href={explorer.url} target="_blank" rel="noreferrer">

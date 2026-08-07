@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_MOCK_API?: string
   readonly VITE_PRIVY_APP_ID?: string
   readonly VITE_MULTICALL3_ADDRESS?: string
+  readonly VITE_ESCROW_DEPLOY_BLOCK?: string
   readonly VITE_ADDR_GAME_ASSET_REGISTRY?: string
   readonly VITE_ADDR_WEAPON_SKIN?: string
   readonly VITE_ADDR_REWARD_DISTRIBUTOR?: string

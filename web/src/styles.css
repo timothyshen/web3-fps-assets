@@ -699,6 +699,202 @@ h2 {
   letter-spacing: 0.08em;
 }
 
+/* ---- tournaments -------------------------------------------- */
+
+.pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  white-space: nowrap;
+}
+.pill-open {
+  color: var(--ok);
+  border-color: rgba(70, 176, 109, 0.5);
+}
+.pill-wait {
+  color: var(--rarity-2);
+  border-color: rgba(74, 143, 212, 0.5);
+}
+.pill-overdue {
+  color: var(--warn);
+  border-color: rgba(217, 165, 58, 0.5);
+}
+.pill-settled {
+  color: var(--rarity-3);
+  border-color: rgba(154, 109, 219, 0.5);
+}
+.pill-cancelled {
+  color: var(--err);
+  border-color: rgba(221, 91, 91, 0.5);
+}
+
+.tournament-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tournament-row {
+  display: block;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  padding: 14px 16px;
+  color: var(--text);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.tournament-row:hover {
+  border-color: var(--accent);
+  background: var(--bg-raise);
+  text-decoration: none;
+}
+.tournament-row-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.tournament-id {
+  font-size: 16px;
+  font-weight: 700;
+}
+.tournament-row-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  font-size: 12.5px;
+}
+
+.strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.trust-panel {
+  border-left: 3px solid var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.callout {
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin: 4px 0;
+}
+.callout-warn {
+  border-color: rgba(217, 165, 58, 0.45);
+  background: rgba(217, 165, 58, 0.06);
+}
+.callout strong {
+  color: var(--warn);
+}
+
+.payout-split {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+.payout-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.payout-row {
+  display: grid;
+  grid-template-columns: 44px 1fr 52px auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.payout-rank {
+  color: var(--text-dim);
+}
+.payout-bar-track {
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  height: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.payout-bar {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.75;
+}
+.payout-pct {
+  text-align: right;
+}
+
+.winners-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.winners-table th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  padding: 4px 10px 4px 0;
+  border-bottom: 1px solid var(--line-strong);
+  font-weight: 600;
+}
+.winners-table td {
+  padding: 7px 10px 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.amount-big {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  line-height: 1.2;
+}
+
+.claim-strip {
+  margin-top: 12px;
+  border: 1px solid rgba(70, 176, 109, 0.4);
+  background: rgba(70, 176, 109, 0.07);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.cta-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.fact-list {
+  margin: 6px 0 12px;
+  padding-left: 18px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.fact-list li {
+  margin-bottom: 5px;
+}
+
+.you-tag {
+  margin-left: 8px;
+  color: var(--accent-strong);
+  border-color: rgba(255, 106, 47, 0.45);
+}
+
 /* ---- boot / spinner ----------------------------------------- */
 
 .boot-screen {

@@ -1,9 +1,10 @@
 # ASH LEDGER — web app
 
 Web application for the `web3-fps-assets` skin-NFT layer (hackathon demo).
-Covers the four web-side items from `docs/roadmap.md`: wallet connect, the
-SIWE bind page Unity sends players to, the closet (on-chain inventory), and
-the SkinMarket listing / buying loop.
+Covers the web-side items from `docs/roadmap.md`: wallet connect, the SIWE
+bind page Unity sends players to, the closet (on-chain inventory), the
+SkinMarket listing / buying loop, and the TournamentEscrow pages (list,
+detail, and the on-chain action pages the backend's `actionUrl` points at).
 
 Stack: Vite + React 18 + TypeScript, wagmi v2 + viem, @tanstack/react-query,
 react-router. Plain CSS, dark industrial. No secrets anywhere in this app —
@@ -31,6 +32,9 @@ marks the session bound. Closet and market need deployed contracts (below).
 | `/bind/:sessionId` | Landing page from the Unity system browser: fetch challenge → SIWE sign → complete |
 | `/closet` | `WeaponSkin.tokensOfOwner` + per-token `skinData` + `GameAssetRegistry.getSkin`, rendered as cards |
 | `/market` | Active SkinMarket listings, list-your-skin flow (approve + list), buy, cancel, EIP-2981 royalty info |
+| `/tournaments` | All tournaments (newest first) with status, players, entry fee, pool, deadlines |
+| `/tournaments/:id` | Detail: trust panel (TRN-002), payout split, status sections, winners, cancel reason, claimables |
+| `/tournaments/:id/:action` | Unity browser hand-off target; `action` ∈ `register`, `sponsor`, `claim-prize`, `claim-refund` |
 
 ## Environment variables
 
@@ -51,6 +55,7 @@ off unless you copy `.env.example`. Everything here is public — no keys.
 | `VITE_MOCK_API` | off | `1` fakes the bind API in-browser |
 | `VITE_PRIVY_APP_ID` | — | Enables Privy embedded wallets (email/social) |
 | `VITE_MULTICALL3_ADDRESS` | — | Adds Multicall3 to a chain that lacks it (anvil fork) |
+| `VITE_ESCROW_DEPLOY_BLOCK` | `earliest` | Start block for tournament event scans (winners / cancel reason) |
 
 ### Chain config: one source, no scattered chainIds
 
@@ -267,6 +272,49 @@ Prices are native MON (ETH on anvil, symbol comes from the chain config).
 Amounts display formatted with the raw wei in the tooltip, per the
 `Amount` convention in `api/openapi.yaml`.
 
+## Tournaments (`/tournaments…`)
+
+Chain-direct against `TournamentEscrow` (no backend dependency), ABI
+hand-copied into `src/abi/tournamentEscrow.ts` including all custom errors,
+so reverts decode to names like `AlreadyRegistered` or `IncorrectEntryFee`.
+
+**Enumeration — no getLogs needed for the list.** Verified in the `.sol`:
+`tournamentCount` is public and ids are sequential (1..count), so the list
+page is one `tournamentCount` read plus a multicall of `getTournament(id)`
+for the newest 200 — exact state, no deploy-block config.
+
+**What must come from events** (not stored in contract state): the winners
+table and per-rank amounts (`PrizeAssigned`), the cancellation reason
+(`Cancelled`), and `resultHash` (`Settled`). The detail page loads these in a
+separate query scoped by the indexed `tournamentId`, from
+`VITE_ESCROW_DEPLOY_BLOCK` (default `earliest`). If the RPC rejects the log
+range, only that section degrades — per-wallet claim amounts come from the
+`prizeOf` / `refundableOf` state views, so claiming always works.
+
+**Trust display (PRD TRN-002).** Before any payment the player sees:
+organizer, organizer fee (bps rendered as %, with the 10% hard cap noted),
+the payout split per rank, and the `resultSubmitter` with an explicit
+callout: *this address alone decides the results — registering means
+trusting it* — plus the escape hatch (past `resultDeadline`, anyone can
+cancel for full refunds). The three cancellation reasons
+(`organizer_cancelled`, `not_enough_participants`,
+`result_deadline_passed`) are worded distinctly (PRD TRN-005). Amounts
+render formatted with raw wei in tooltips (PRD TRN-008); testnet is labeled
+globally in the header/footer.
+
+**Action pages** (`/tournaments/{id}/{action}`) match the backend's
+`actionUrl` exactly (`backend/src/routes/tournaments.ts`). Each shows what
+the transaction does before executing: `register` sends exactly the on-chain
+`entryFee` (the contract rejects any other amount), `sponsor` takes a
+user-entered amount (`parseEther`, > 0), the two claims send nothing and
+show the exact payout from `prizeOf` / `refundableOf`. Flow: connect →
+review → wallet confirm → pending (explorer link) → confirmed ("return to
+the game and refresh the lobby") — with decoded custom errors on revert.
+Unknown action or id renders a clear error page. Special case: `claim-refund`
+on a still-open tournament whose cancel conditions hold (checked via
+`canCancel`) offers the "trigger cancellation first" step — anyone may run
+it — then the refund unlocks.
+
 ## Scripts / quality gate
 
 ```bash
@@ -282,7 +330,10 @@ TypeScript is strict (`strict`, `noUnusedLocals`, `noUnusedParameters`).
 
 - [ ] **Deployed contract addresses** — run `contracts/script/Deploy.s.sol`
       (+ `SeedSkins.s.sol` for demo data), then fill `VITE_ADDR_*` or
-      `public/deployments.json`.
+      `public/deployments.json`. Tournament pages need
+      `VITE_ADDR_TOURNAMENT_ESCROW`; set `VITE_ESCROW_DEPLOY_BLOCK` to its
+      deploy block so winner/cancel-reason event scans stay within public-RPC
+      log-range limits.
 - [ ] **RPC URL** — the public `https://testnet-rpc.monad.xyz` works but is
       rate-limited; set `VITE_RPC_URL` to a dedicated endpoint for demos.
 - [ ] **Asset backend** — implement the two assumed bind endpoints above
@@ -305,7 +356,8 @@ web/
     ├── abi/                      # hand-written minimal ABI fragments (+ errors)
     │   ├── weaponSkin.ts
     │   ├── gameAssetRegistry.ts
-    │   └── skinMarket.ts
+    │   ├── skinMarket.ts
+    │   └── tournamentEscrow.ts
     ├── api/                      # typed bind client: http impl + mock impl
     │   ├── types.ts / http.ts / bindApi.ts / mockBindApi.ts / index.ts
     ├── config/
@@ -313,9 +365,9 @@ web/
     │   ├── chain.ts              # SINGLE chain-truth module
     │   ├── contracts.ts          # typed addresses: env + deployments.json
     │   └── skinCatalog.ts        # demo names, mirrors SeedSkins.s.sol
-    ├── lib/                      # siwe builder, batched reads, formatting, errors
+    ├── lib/                      # siwe builder, batched reads, formatting, tournament helpers
     ├── providers/                # wagmi / optional lazy Privy / contracts context
-    ├── hooks/                    # useCloset, useMarket, useMarketActions
-    ├── components/               # layout, connect, cards, notices, countdown
-    └── pages/                    # Home, Bind, Closet, Market
+    ├── hooks/                    # useCloset, useMarket(+Actions), useTournament(s)(+Actions)
+    ├── components/               # layout, connect, cards, notices, trust panel, countdown
+    └── pages/                    # Home, Bind, Closet, Market, Tournaments, detail, action
 ```
