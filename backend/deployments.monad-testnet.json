@@ -1,0 +1,11 @@
+{
+  "chainId": 10143,
+  "contracts": {
+    "gameAssetRegistry": "0x9c6daee146f3d3e4a5c35b80f4e7f7424f8a6eed",
+    "weaponSkin": "0x2c93b9db55c6f82544ab102cdd1594dadbac939f",
+    "rewardDistributor": "0xde26c0ee5f066af59b8c288c252161982c630beb",
+    "skinMarket": "0x719a8d8650117daa88e1ae3714c53623a91e430b",
+    "matchAttestation": "0x0fd93d14614692f04a29278d9c03181837b7c8c5",
+    "tournamentEscrow": "0x3fbf24bed00acf57189f374cc3ca58a1714cbe13"
+  }
+}
