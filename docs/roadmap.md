@@ -24,17 +24,17 @@
 
 ## 下一步（按依赖顺序）
 
-### 1. 测试网实跑（半天）
+### 1. 测试网实跑 —— ✅ 已完成（2026-08-08，上线运行中）
 
-后端、前端、部署脚本均已就绪，只差密钥与水龙头：
+- [x] 六合约部署至 Monad 测试网（地址见 `backend/deployments.monad-testnet.json`）
+- [x] `SeedSkins.s.sol` 灌 5 款皮肤；`setBaseURI` 已指向公网后端（tx `0x455f…42da`）
+- [x] 后端上线 Railway：`https://web3-fps-assets-production.up.railway.app`（Dockerfile + `/app/data` 卷，`CONFIRMATION_BLOCKS=2`）
+- [x] Web 上线 Vercel：`https://web3-fps-assets.vercel.app`（SPA 深链接重写已配）
+- [x] 生产环境全链路 E2E 通过：登录 → 真实 SIWE 绑定 → 内部端点推对局 → 链上存证 `attested` → 领奖真实铸造（tokenId 4475355922433）→ 终局窗口后 confirmed → 衣柜显示 → 公网 tokenURI 元数据解析
+- [ ] Sourcify 合约验证（可选，便于浏览器读源码）
+- [ ] `cast`/Web 手动走一遍 list → buy（市场页挂单易手轨迹）
 
-- [ ] 拿 Monad 测试网 MON（水龙头）
-- [ ] 填 `.env`（PRIVATE_KEY / REWARD_SIGNER_ADDRESS），`Deploy.s.sol` 实际部署 + Sourcify 验证
-- [ ] `SeedSkins.s.sol` 灌 5 款皮肤，`setBaseURI` 指向公网后端
-- [ ] `backend/.env` 与 `web` 地址配置换成测试网（`CHAIN_ID=10143`、`CONFIRMATION_BLOCKS=2`）
-- [ ] `cast` 手动走一遍 mintDirect → tokensOfOwner → list → buy
-
-**验收**：在区块浏览器上能看到一件皮肤从铸造到易手的完整轨迹。
+**验收**：在区块浏览器上能看到一件皮肤从铸造到易手的完整轨迹（铸造已达成，易手待市场页实操）。
 
 ### 2. Demo 串联（半天，依赖游戏侧）
 
