@@ -15,8 +15,8 @@ function NotFound() {
   return (
     <div className="page page-narrow">
       <Notice tone="warn" title="Not found">
-        Nothing at this path. Pages: / (console), /bind/&lt;sessionId&gt;, /closet, /market,
-        /tournaments, /tournaments/&lt;id&gt;, /tournaments/&lt;id&gt;/&lt;action&gt;.
+        Nothing at this path. Pages: /, /bind/&lt;sessionId&gt;, /closet, /market, /tournaments,
+        /tournaments/&lt;id&gt;, /tournaments/&lt;id&gt;/&lt;action&gt;.
       </Notice>
     </div>
   )

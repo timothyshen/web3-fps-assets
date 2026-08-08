@@ -49,9 +49,6 @@ export function Layout() {
             ASH LEDGER
           </NavLink>
           <nav className="nav">
-            <NavLink to="/" end>
-              Console
-            </NavLink>
             <NavLink to="/closet">Closet</NavLink>
             <NavLink to="/market">Market</NavLink>
             <NavLink to="/tournaments">Tournaments</NavLink>
