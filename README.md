@@ -94,3 +94,14 @@ Unity 侧：把 `packages/unity-sdk/Runtime/` 拷进工程，先用 `MockGameAss
 | [integration.md](docs/integration.md) | 资产后端要做什么、Unity 集成约束 |
 | [security.md](docs/security.md) | 威胁模型，标注了哪些已挡住、哪些是刻意留的口子 |
 | [roadmap.md](docs/roadmap.md) | 进度、下一步、待讨论的问题 |
+
+
+## Deployed Address
+| 合约 | 地址 |
+|------|------|
+| GameAssetRegistry | 0x9C6DAeE146F3d3E4a5C35b80F4E7F7424F8a6Eed |
+| WeaponSkin        | 0x2C93B9Db55c6F82544AB102CdD1594dADbAc939f |
+| RewardDistributor | 0xde26c0EE5F066aF59B8C288c252161982c630bEb |
+| SkinMarket        | 0x719A8D8650117daa88E1ae3714c53623a91e430B |
+| MatchAttestation  | 0x0fd93d14614692F04A29278d9C03181837B7C8C5 |
+| TournamentEscrow  | 0x3fbf24BEd00acF57189F374CC3cA58A1714cBe13 |
